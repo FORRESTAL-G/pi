@@ -99,6 +99,7 @@ import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import { expandSkillMidsentence } from "./skills.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -1156,9 +1157,11 @@ export class AgentSession {
 				}
 			}
 
-			// Expand skill commands (/skill:name args) and prompt templates (/template args)
+			// Expand mid-sentence skill invocations (/name args from line 2 on), then
+			// native skill commands (/skill:name args) and prompt templates (/template args)
 			let expandedText = currentText;
 			if (expandPromptTemplates) {
+				expandedText = this._expandSkillMidsentence(expandedText);
 				expandedText = this._expandSkillCommand(expandedText);
 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 			}
@@ -1302,6 +1305,18 @@ export class AgentSession {
 	}
 
 	/**
+	 * Expand mid-sentence skill invocations (`/name args` anywhere from line 2 on,
+	 * word-boundary, args to end of line) into the same block the native
+	 * `/skill:name` command produces. Fail-soft: unknown names and unreadable
+	 * files are left untouched.
+	 */
+	private _expandSkillMidsentence(text: string): string {
+		const skills = this.resourceLoader.getSkills().skills;
+		if (skills.length === 0) return text;
+		return expandSkillMidsentence(text, skills, (filePath) => readFileSync(filePath, "utf-8")).text;
+	}
+
+	/**
 	 * Expand skill commands (/skill:name args) to their full content.
 	 * Returns the expanded text, or the original text if not a skill command or skill not found.
 	 * Emits errors via extension runner if file read fails.
@@ -1336,7 +1351,7 @@ export class AgentSession {
 	 * Queue a steering message while the agent is running.
 	 * Delivered after the current assistant turn finishes executing its tool calls,
 	 * before the next LLM call.
-	 * Expands skill commands and prompt templates. Errors on extension commands.
+	 * Expands mid-sentence skills, skill commands and prompt templates. Errors on extension commands.
 	 * @param images Optional image attachments to include with the message
 	 * @throws Error if text is an extension command
 	 */
@@ -1346,8 +1361,9 @@ export class AgentSession {
 			this._throwIfExtensionCommand(text);
 		}
 
-		// Expand skill commands and prompt templates
-		let expandedText = this._expandSkillCommand(text);
+		// Expand mid-sentence skills, skill commands and prompt templates
+		let expandedText = this._expandSkillMidsentence(text);
+		expandedText = this._expandSkillCommand(expandedText);
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
 		await this._queueSteer(expandedText, images);
@@ -1356,7 +1372,7 @@ export class AgentSession {
 	/**
 	 * Queue a follow-up message to be processed after the agent finishes.
 	 * Delivered only when agent has no more tool calls or steering messages.
-	 * Expands skill commands and prompt templates. Errors on extension commands.
+	 * Expands mid-sentence skills, skill commands and prompt templates. Errors on extension commands.
 	 * @param images Optional image attachments to include with the message
 	 * @throws Error if text is an extension command
 	 */
@@ -1366,8 +1382,9 @@ export class AgentSession {
 			this._throwIfExtensionCommand(text);
 		}
 
-		// Expand skill commands and prompt templates
-		let expandedText = this._expandSkillCommand(text);
+		// Expand mid-sentence skills, skill commands and prompt templates
+		let expandedText = this._expandSkillMidsentence(text);
+		expandedText = this._expandSkillCommand(expandedText);
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
 		await this._queueFollowUp(expandedText, images);

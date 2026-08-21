@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import ignore from "ignore";
 import { basename, dirname, join, relative, resolve, sep } from "path";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
-import { parseFrontmatter } from "../utils/frontmatter.ts";
+import { parseFrontmatter, stripFrontmatter } from "../utils/frontmatter.ts";
 import { canonicalizePath, resolvePath } from "../utils/paths.ts";
 import type { ResourceDiagnostic } from "./diagnostics.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
@@ -484,4 +484,155 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 		skills: Array.from(skillMap.values()),
 		diagnostics: [...allDiagnostics, ...collisionDiagnostics],
 	};
+}
+
+// ---------------------------------------------------------------------------
+// Mid-sentence skill invocation (`/name args` anywhere from line 2 on)
+// ---------------------------------------------------------------------------
+
+/** Charset of valid skill names per the Agent Skills spec. */
+const MIDSENTENCE_SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*/;
+
+/** Truncation for descriptions in the `/?` discovery listing. */
+const DISCOVERY_DESCRIPTION_LENGTH = 90;
+
+export interface ExpandSkillMidsentenceResult {
+	/** Text with every resolvable `/name args` token replaced by its skill block. */
+	text: string;
+	/** Names of the skills expanded, in order of appearance (`?` = discovery listing). */
+	expanded: string[];
+	/** Candidate names that did not resolve to a loaded skill (left untouched). */
+	missing: string[];
+}
+
+/**
+ * Format the discovery listing shown when `/?` appears mid-sentence.
+ */
+function formatSkillDiscoveryListing(skills: Skill[]): string {
+	if (skills.length === 0) return "[skills] none available\n";
+	const lines = skills.map((skill) => {
+		const d =
+			skill.description.length > DISCOVERY_DESCRIPTION_LENGTH
+				? `${skill.description.slice(0, DISCOVERY_DESCRIPTION_LENGTH)}...`
+				: skill.description;
+		return `  ${skill.name} — ${d}`;
+	});
+	return `[skills] invocable mid-sentence (/name [args]):\n${lines.join("\n")}\n`;
+}
+
+/**
+ * Expand mid-sentence skill invocations.
+ *
+ * Semantics (mirrors the `/name` word-boundary rules of the prompt-midsentence
+ * companion feature, applied to skills):
+ * - Trigger `/name` where `name` matches a loaded skill exactly; the slash must be
+ *   preceded by whitespace (so `C:/x`, `a/b`, `n/d` never trigger).
+ * - The first line of the input is native pi territory (slash commands consume the
+ *   whole line); scanning starts at line 2.
+ * - `name:` (a colon right after the name, e.g. `/skill:foo`) is not a sigil.
+ * - Args run to the end of the line (exclusive); the rest of the text is preserved.
+ * - A matching token is replaced in place by the same block the native
+ *   `/skill:name` command produces, followed by the args.
+ * - `/?` is a discovery alias: replaced in place by the listing of loaded skills.
+ * - Fail-soft: unknown names and unreadable files leave the text untouched.
+ * - Single pass: the expansion result is never rescanned.
+ *
+ * @param readSkillFile injected file reader (keeps this pure and testable).
+ */
+export function expandSkillMidsentence(
+	text: string,
+	skills: Skill[],
+	readSkillFile: (filePath: string) => string,
+): ExpandSkillMidsentenceResult {
+	let i = 0;
+	let out = "";
+	const expanded: string[] = [];
+	const missing: string[] = [];
+
+	while (true) {
+		const start = text.indexOf("/", i);
+		if (start === -1) {
+			out += text.slice(i);
+			break;
+		}
+
+		// Absolute start of input is native: skip the entire first line.
+		if (start === 0) {
+			const nl = text.search(/[\n\r]/);
+			const stop = nl === -1 ? text.length : nl;
+			out += text.slice(0, stop);
+			i = stop;
+			continue;
+		}
+
+		// Word boundary: the character before the slash must be whitespace.
+		if (!/\s/.test(text[start - 1]!)) {
+			out += text.slice(i, start + 1);
+			i = start + 1;
+			continue;
+		}
+
+		const rest = text.slice(start + 1);
+
+		// `/?` discovery alias.
+		if (rest.startsWith("?")) {
+			out += text.slice(i, start) + formatSkillDiscoveryListing(skills);
+			expanded.push("?");
+			i = start + 2;
+			continue;
+		}
+
+		const candidate = MIDSENTENCE_SKILL_NAME_RE.exec(rest);
+		if (!candidate || candidate[0].length < 2) {
+			out += text.slice(i, start + 1);
+			i = start + 1;
+			continue;
+		}
+
+		const name = candidate[0];
+		const afterName = start + 1 + name.length;
+		const nextCh = text[afterName] ?? "";
+
+		// The name must end at a boundary.
+		if (nextCh && /[a-z0-9-]/.test(nextCh)) {
+			out += text.slice(i, start + 1);
+			i = start + 1;
+			continue;
+		}
+
+		// Namespace guard: `/name:...` (e.g. `/skill:foo`) is not a mid-sentence sigil.
+		if (nextCh === ":") {
+			out += text.slice(i, start + 1);
+			i = start + 1;
+			continue;
+		}
+
+		// Args run to the end of the line (exclusive).
+		const relNl = text.slice(afterName).search(/[\n\r]/);
+		const lineEnd = relNl === -1 ? text.length : afterName + relNl;
+		const args = text.slice(afterName, lineEnd).trim();
+
+		const skill = skills.find((s) => s.name === name);
+		if (!skill) {
+			missing.push(name);
+			out += text.slice(i, afterName);
+			i = afterName;
+			continue;
+		}
+
+		try {
+			const content = readSkillFile(skill.filePath);
+			const body = stripFrontmatter(content).trim();
+			const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
+			out += text.slice(i, start) + (args ? `${skillBlock}\n\n${args}` : skillBlock);
+			expanded.push(name);
+			i = lineEnd;
+		} catch {
+			missing.push(name);
+			out += text.slice(i, afterName);
+			i = afterName;
+		}
+	}
+
+	return { text: out, expanded, missing };
 }
