@@ -21,6 +21,7 @@ export interface AppKeybindings {
 	"app.model.select": true;
 	"app.tools.expand": true;
 	"app.thinking.toggle": true;
+	"app.thinking.inspect": true;
 	"app.session.toggleNamedFilter": true;
 	"app.editor.external": true;
 	"app.message.copy": true;
@@ -87,6 +88,10 @@ export const KEYBINDINGS = {
 	"app.thinking.toggle": {
 		defaultKeys: "ctrl+t",
 		description: "Toggle thinking blocks",
+	},
+	"app.thinking.inspect": {
+		defaultKeys: "alt+t",
+		description: "Inspect thinking blocks of the last agent message",
 	},
 	"app.session.toggleNamedFilter": {
 		defaultKeys: "ctrl+n",

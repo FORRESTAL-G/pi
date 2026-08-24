@@ -146,6 +146,7 @@ import {
 	type StatusIndicator,
 	WorkingStatusIndicator,
 } from "./components/status-indicator.ts";
+import { ThinkingModalComponent } from "./components/thinking-modal.ts";
 import {
 	formatTimestampMarker,
 	shouldShowTimestampMarker,
@@ -2837,6 +2838,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
 		this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
 		this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
+		this.defaultEditor.onAction("app.thinking.inspect", () => this.openThinkingModal());
 		this.defaultEditor.onAction("app.editor.external", () => void this.handleOpenExternalEditor());
 		this.defaultEditor.onAction("app.message.copy", () => void this.handleCopyCommand({ flashConfirmation: true }));
 		this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
@@ -4115,6 +4117,53 @@ export class InteractiveMode {
 			}
 		}
 		this.showStatus(`Tool output: ${expanded ? "expanded" : "collapsed"}`);
+	}
+
+	/**
+	 * Apre la modale read-only con i blocchi thinking dell'ultimo messaggio assistant.
+	 *
+	 * Vincolo documentato (addendum feature #2): la main screen non ha selezione
+	 * messaggi — la convenzione "messaggio corrente" del repo e' l'ultimo assistant
+	 * (vedi handleCopyCommand / ctrl+x), quindi la modale segue la stessa regola.
+	 * Il body thinking vive integro in message.content (memoria + sessione jsonl)
+	 * anche con thinking nascosto: il revealing e' sempre possibile per i blocchi
+	 * presenti nel contesto; dopo compaction i messaggi riassunti non sono piu'
+	 * raggiungibili (non esistono nemmeno come transcript).
+	 */
+	private openThinkingModal(): void {
+		const lastWithThinking = this.session.messages
+			.slice()
+			.reverse()
+			.find(
+				(m): m is AssistantMessage =>
+					m.role === "assistant" && m.content.some((c) => c.type === "thinking" && c.thinking.trim().length > 0),
+			);
+		if (!lastWithThinking) {
+			this.showStatus("No thinking blocks in recent agent messages");
+			return;
+		}
+
+		const blocks = lastWithThinking.content
+			.filter((c): c is Extract<typeof c, { type: "thinking" }> => c.type === "thinking")
+			.map((c) => c.thinking.trim())
+			.filter((t) => t.length > 0);
+		if (blocks.length === 0) {
+			this.showStatus("No thinking blocks in recent agent messages");
+			return;
+		}
+
+		let handle: ReturnType<TUI["showOverlay"]> | undefined;
+		const component = new ThinkingModalComponent(blocks, lastWithThinking.timestamp, this.ui, () => {
+			handle?.hide();
+			this.ui.requestRender();
+		});
+		handle = this.ui.showOverlay(component, {
+			anchor: "center",
+			width: "70%",
+			maxHeight: "80%",
+			margin: 2,
+		});
+		this.ui.requestRender();
 	}
 
 	private toggleThinkingBlockVisibility(): void {

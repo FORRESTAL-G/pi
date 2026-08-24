@@ -54,6 +54,11 @@ export function timestampMarkerNeedsDate(previousTs: number | null, ts: number, 
 	return localDayKey(ts) !== localDayKey(now);
 }
 
+/** Formatta solo l'ora locale `HH:MM` (usata anche dall'header della modale thinking). */
+export function formatLocalTime(ts: number): string {
+	return getTimeFormatter().format(new Date(ts));
+}
+
 /** Formatta il testo del marker: `▼ HH:MM` oppure `▼ HH:MM · GG MMM AAAA`. */
 export function formatTimestampMarker(ts: number, withDate: boolean): string {
 	const time = getTimeFormatter().format(new Date(ts));
