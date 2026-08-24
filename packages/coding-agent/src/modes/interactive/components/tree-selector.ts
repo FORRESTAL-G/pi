@@ -16,6 +16,7 @@ import type { SessionTreeNode } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { formatKeyText, keyHint } from "./keybinding-hints.ts";
+import { formatTimestampLabel, timestampMarkerNeedsDate } from "./timestamp-marker.ts";
 
 /** Gutter info: position (displayIndent where connector was) and whether to show │ */
 interface GutterInfo {
@@ -742,11 +743,12 @@ class TreeList implements Component {
 				this.showLabelTimestamps && flatNode.node.label && flatNode.node.labelTimestamp
 					? theme.fg("muted", `${this.formatLabelTimestamp(flatNode.node.labelTimestamp)} `)
 					: "";
+			const entryTimestamp = this.formatEntryTimestamp(entry.timestamp);
 			const content = this.getEntryDisplayText(flatNode.node, isSelected);
 			const prefixPart = theme.fg("dim", prefix) + foldMarker + pathMarker;
 			const anchorCol = visibleWidth(prefixPart);
 			let gutter = cursor;
-			let body = prefixPart + label + labelTimestamp + content;
+			let body = prefixPart + label + labelTimestamp + entryTimestamp + content;
 			if (isSelected) {
 				gutter = theme.bg("selectedBg", gutter);
 				body = theme.bg("selectedBg", body);
@@ -849,6 +851,20 @@ class TreeList implements Component {
 		}
 
 		return isSelected ? theme.bold(result) : result;
+	}
+
+	/**
+	 * Etichetta temporale dim del nodo, dal timestamp registrato nell'entry del
+	 * jsonl: `HH:MM`, con `· GG MMM AAAA` quando il giorno locale dell'entry
+	 * differisce da oggi. Ogni riga dell'albero è autonoma (i rami alternano
+	 * giorni), quindi il confronto è per-nodo con "oggi" e non col nodo
+	 * precedente. Per i messaggi assistant l'entry timestamp è quello di
+	 * completamento (scritto a message_end), non di inizio risposta.
+	 */
+	private formatEntryTimestamp(timestamp: string): string {
+		const ts = new Date(timestamp).getTime();
+		if (Number.isNaN(ts)) return "";
+		return theme.fg("dim", `${formatTimestampLabel(ts, timestampMarkerNeedsDate(null, ts))} `);
 	}
 
 	private formatLabelTimestamp(timestamp: string): string {

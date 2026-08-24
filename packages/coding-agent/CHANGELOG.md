@@ -6,6 +6,7 @@
 
 - Added a read-only thinking modal (default `alt+t`, `app.thinking.inspect`) that reveals and scrolls the thinking blocks of the last agent message even when thinking blocks are hidden (`ctrl+t`). Arrow keys and PgUp/PgDn scroll, left/right switch between blocks, ESC always closes. Thinking bodies live in the message content, so revealing works for any block still present in the transcript; messages replaced by compaction are no longer reachable.
 - Added local-time timestamp markers in the interactive transcript: a dim `▼ HH:MM` line (or `▼ HH:MM · DD MMM YYYY` on local day change) is rendered above every user, assistant, and visible custom message.
+- Added per-node timestamps to the `/tree` session tree: every visible node shows a dim `HH:MM` label (or `HH:MM · DD MMM YYYY` when the entry's local day differs from today) from the timestamp recorded in the session entry; for assistant messages that entry timestamp is completion time (`message_end`).
 
 ## [0.84.2] - 2026-08-14
 

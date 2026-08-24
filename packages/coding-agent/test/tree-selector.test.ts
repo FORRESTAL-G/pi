@@ -295,6 +295,62 @@ describe("TreeSelectorComponent", () => {
 		});
 	});
 
+	describe("entry timestamps", () => {
+		test("mostra HH:MM dim da timestamp dell'entry accanto a ogni nodo visibile", () => {
+			const entries = [userMessage("user-1", null, "hello"), assistantMessage("asst-1", "user-1", "hi")];
+			const tree = buildTree(entries);
+			const selector = new TreeSelectorComponent(
+				tree,
+				"asst-1",
+				24,
+				() => {},
+				() => {},
+			);
+			const list = selector.getTreeList();
+			const plain = list.render(200).map(stripVTControlCharacters).join("\n");
+			// Entrambe le entry sono di oggi: solo ora, senza data
+			const userTime = new Date(entries[0]!.timestamp);
+			const asstTime = new Date(entries[1]!.timestamp);
+			const hhmm = (d: Date) =>
+				`${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+			expect(plain).toContain(`${hhmm(userTime)} user: hello`);
+			expect(plain).toContain(`${hhmm(asstTime)} assistant: hi`);
+		});
+
+		test("entry di un giorno passato: HH:MM con data completa", () => {
+			const entry = userMessage("user-1", null, "old message");
+			// 26h fa: sicuramente un altro giorno locale (anche con DST a 23h/25h)
+			entry.timestamp = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString();
+			const tree = buildTree([entry, assistantMessage("asst-1", "user-1", "hi")]);
+			const selector = new TreeSelectorComponent(
+				tree,
+				"asst-1",
+				24,
+				() => {},
+				() => {},
+			);
+			const list = selector.getTreeList();
+			const plain = list.render(200).map(stripVTControlCharacters).join("\n");
+			expect(plain).toMatch(/\d{2}:\d{2} · .+\d{4} user: old message/);
+		});
+
+		test("entry con timestamp non valido: nessuna etichetta, nessun crash", () => {
+			const entry = userMessage("user-1", null, "broken ts");
+			entry.timestamp = "not-a-date";
+			const tree = buildTree([entry, assistantMessage("asst-1", "user-1", "hi")]);
+			const selector = new TreeSelectorComponent(
+				tree,
+				"asst-1",
+				24,
+				() => {},
+				() => {},
+			);
+			const list = selector.getTreeList();
+			const plain = list.render(200).map(stripVTControlCharacters).join("\n");
+			expect(plain).toContain("user: broken ts");
+		});
+	});
+
 	describe("label timestamps", () => {
 		test("toggles label timestamps for labeled nodes", () => {
 			const entries = [userMessage("user-1", null, "hello"), assistantMessage("asst-1", "user-1", "hi")];
