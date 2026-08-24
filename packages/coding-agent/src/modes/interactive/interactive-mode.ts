@@ -147,12 +147,7 @@ import {
 	WorkingStatusIndicator,
 } from "./components/status-indicator.ts";
 import { ThinkingModalComponent } from "./components/thinking-modal.ts";
-import {
-	formatTimestampMarker,
-	shouldShowTimestampMarker,
-	TimestampMarkerComponent,
-	timestampMarkerNeedsDate,
-} from "./components/timestamp-marker.ts";
+import { buildTimestampMarker, TimestampMarkerComponent } from "./components/timestamp-marker.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
@@ -456,7 +451,7 @@ export class InteractiveMode {
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
 	private streamingMessage: AssistantMessage | undefined = undefined;
-	/** Timestamp dell'ultimo messaggio eleggibile (user/assistant/custom visibile) per la regola del marker orario. */
+	/** Timestamp dell'ultimo messaggio eleggibile (user/assistant/custom visibile); rev2 il marker è su ogni messaggio, questo serve solo per la data al cambio giorno. */
 	private lastMarkerEligibleTs: number | null = null;
 
 	// Tool execution tracking: toolCallId -> component
@@ -3176,7 +3171,7 @@ export class InteractiveMode {
 						this.getMarkdownTransformers(),
 					);
 					this.streamingMessage = event.message;
-					this.maybeAddTimestampMarker(event.message.timestamp);
+					this.addTimestampMarker(event.message.timestamp);
 					this.chatContainer.addChild(this.streamingComponent);
 					this.streamingComponent.updateContent(this.streamingMessage, true);
 					this.ui.requestRender();
@@ -3505,15 +3500,13 @@ export class InteractiveMode {
 		this.chatContainer.addChild(component);
 	}
 
-	/** Aggiunge, se la regola anti-rumore lo richiede, la riga marker temporale sopra il messaggio con timestamp `ts`. */
-	private maybeAddTimestampMarker(ts: number): void {
-		if (shouldShowTimestampMarker(this.lastMarkerEligibleTs, ts)) {
-			this.chatContainer.addChild(
-				new TimestampMarkerComponent(
-					formatTimestampMarker(ts, timestampMarkerNeedsDate(this.lastMarkerEligibleTs, ts)),
-				),
-			);
-		}
+	/**
+	 * Aggiunge la riga marker temporale sopra il messaggio con timestamp `ts`.
+	 * Rev2: un marker per ogni messaggio eleggibile (user, assistant, custom
+	 * visibile); il messaggio precedente decide solo se mostrare la data.
+	 */
+	private addTimestampMarker(ts: number): void {
+		this.chatContainer.addChild(new TimestampMarkerComponent(buildTimestampMarker(this.lastMarkerEligibleTs, ts)));
 		this.lastMarkerEligibleTs = ts;
 	}
 
@@ -3535,7 +3528,7 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					this.maybeAddTimestampMarker(message.timestamp);
+					this.addTimestampMarker(message.timestamp);
 					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
 					const component = new CustomMessageComponent(
 						message,
@@ -3568,7 +3561,7 @@ export class InteractiveMode {
 					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));
 					}
-					this.maybeAddTimestampMarker(message.timestamp);
+					this.addTimestampMarker(message.timestamp);
 					const skillBlock = parseSkillBlock(textContent);
 					if (skillBlock) {
 						// Render skill block (collapsible)
@@ -3605,7 +3598,7 @@ export class InteractiveMode {
 				break;
 			}
 			case "assistant": {
-				this.maybeAddTimestampMarker(message.timestamp);
+				this.addTimestampMarker(message.timestamp);
 				const assistantComponent = new AssistantMessageComponent(
 					message,
 					this.hideThinkingBlock,

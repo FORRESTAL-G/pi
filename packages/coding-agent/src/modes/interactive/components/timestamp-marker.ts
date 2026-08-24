@@ -1,9 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.ts";
 
-/** Soglia minima (ms) tra due messaggi perché appaia un marker temporale. */
-export const TIMESTAMP_MARKER_GAP_MS = 60_000;
-
 // Formattatori Intl condivisi: costosi da creare, localizzati con locale di sistema e TZ locale.
 let timeFormatter: Intl.DateTimeFormat | undefined;
 let dateFormatter: Intl.DateTimeFormat | undefined;
@@ -33,21 +30,9 @@ function localDayKey(ts: number): string {
 }
 
 /**
- * Regola anti-rumore: il marker appare prima di un messaggio se
- * (a) è il primo renderizzato della vista, oppure
- * (b) sono passati ≥ TIMESTAMP_MARKER_GAP_MS dal messaggio precedente, oppure
- * (c) cambia il giorno locale.
- */
-export function shouldShowTimestampMarker(previousTs: number | null, ts: number): boolean {
-	if (previousTs === null) return true;
-	if (ts - previousTs >= TIMESTAMP_MARKER_GAP_MS) return true;
-	return localDayKey(previousTs) !== localDayKey(ts);
-}
-
-/**
  * La data compare nel marker solo quando serve disambiguare: giorno diverso dal
  * messaggio precedente, oppure — per il primo messaggio della vista, es. sessione
- * ripresa — giorno diverso da oggi.
+ * ripresa, o per le etichette per-nodo del /tree — giorno diverso da oggi.
  */
 export function timestampMarkerNeedsDate(previousTs: number | null, ts: number, now: number = Date.now()): boolean {
 	if (previousTs !== null) return localDayKey(previousTs) !== localDayKey(ts);
@@ -59,11 +44,28 @@ export function formatLocalTime(ts: number): string {
 	return getTimeFormatter().format(new Date(ts));
 }
 
+/**
+ * Etichetta temporale inline senza freccia: `HH:MM` oppure `HH:MM · GG MMM AAAA`.
+ * Usata dal /tree; il marker del transcript aggiunge la freccia `▼`.
+ */
+export function formatTimestampLabel(ts: number, withDate: boolean): string {
+	const time = getTimeFormatter().format(new Date(ts));
+	if (!withDate) return time;
+	return `${time} · ${getDateFormatter().format(new Date(ts))}`;
+}
+
 /** Formatta il testo del marker: `▼ HH:MM` oppure `▼ HH:MM · GG MMM AAAA`. */
 export function formatTimestampMarker(ts: number, withDate: boolean): string {
-	const time = getTimeFormatter().format(new Date(ts));
-	if (!withDate) return `▼ ${time}`;
-	return `▼ ${time} · ${getDateFormatter().format(new Date(ts))}`;
+	return `▼ ${formatTimestampLabel(ts, withDate)}`;
+}
+
+/**
+ * Testo del marker rev2: OGNI messaggio eleggibile (user, assistant, custom
+ * visibile) ha il proprio marker; il timestamp del messaggio precedente serve
+ * solo a decidere se aggiungere la data al cambio giorno.
+ */
+export function buildTimestampMarker(previousTs: number | null, ts: number, now: number = Date.now()): string {
+	return formatTimestampMarker(ts, timestampMarkerNeedsDate(previousTs, ts, now));
 }
 
 /**
