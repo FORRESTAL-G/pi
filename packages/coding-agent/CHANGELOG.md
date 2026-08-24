@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added local-time timestamp markers in the interactive transcript: a dim `▼ HH:MM` line (or `▼ HH:MM · DD MMM YYYY` on local day change) is rendered above user, assistant, and visible custom messages when it is the first message in view, at least 60 seconds passed since the previous message, or the local day changed.
+
 ## [0.84.2] - 2026-08-14
 
 ### New Features

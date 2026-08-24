@@ -146,6 +146,12 @@ import {
 	type StatusIndicator,
 	WorkingStatusIndicator,
 } from "./components/status-indicator.ts";
+import {
+	formatTimestampMarker,
+	shouldShowTimestampMarker,
+	TimestampMarkerComponent,
+	timestampMarkerNeedsDate,
+} from "./components/timestamp-marker.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
@@ -449,6 +455,8 @@ export class InteractiveMode {
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
 	private streamingMessage: AssistantMessage | undefined = undefined;
+	/** Timestamp dell'ultimo messaggio eleggibile (user/assistant/custom visibile) per la regola del marker orario. */
+	private lastMarkerEligibleTs: number | null = null;
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
@@ -3166,6 +3174,7 @@ export class InteractiveMode {
 						this.getMarkdownTransformers(),
 					);
 					this.streamingMessage = event.message;
+					this.maybeAddTimestampMarker(event.message.timestamp);
 					this.chatContainer.addChild(this.streamingComponent);
 					this.streamingComponent.updateContent(this.streamingMessage, true);
 					this.ui.requestRender();
@@ -3494,6 +3503,18 @@ export class InteractiveMode {
 		this.chatContainer.addChild(component);
 	}
 
+	/** Aggiunge, se la regola anti-rumore lo richiede, la riga marker temporale sopra il messaggio con timestamp `ts`. */
+	private maybeAddTimestampMarker(ts: number): void {
+		if (shouldShowTimestampMarker(this.lastMarkerEligibleTs, ts)) {
+			this.chatContainer.addChild(
+				new TimestampMarkerComponent(
+					formatTimestampMarker(ts, timestampMarkerNeedsDate(this.lastMarkerEligibleTs, ts)),
+				),
+			);
+		}
+		this.lastMarkerEligibleTs = ts;
+	}
+
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
 		switch (message.role) {
 			case "bashExecution": {
@@ -3512,6 +3533,7 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
+					this.maybeAddTimestampMarker(message.timestamp);
 					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
 					const component = new CustomMessageComponent(
 						message,
@@ -3544,6 +3566,7 @@ export class InteractiveMode {
 					if (this.chatContainer.children.length > 0) {
 						this.chatContainer.addChild(new Spacer(1));
 					}
+					this.maybeAddTimestampMarker(message.timestamp);
 					const skillBlock = parseSkillBlock(textContent);
 					if (skillBlock) {
 						// Render skill block (collapsible)
@@ -3580,6 +3603,7 @@ export class InteractiveMode {
 				break;
 			}
 			case "assistant": {
+				this.maybeAddTimestampMarker(message.timestamp);
 				const assistantComponent = new AssistantMessageComponent(
 					message,
 					this.hideThinkingBlock,
@@ -3696,6 +3720,8 @@ export class InteractiveMode {
 		entries: SessionEntry[],
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
+		// La vista viene ripopolata da zero: riparte la regola «primo messaggio = marker».
+		this.lastMarkerEligibleTs = null;
 		const items = entries.flatMap((entry): RenderSessionItem[] => {
 			if (entry.type === "custom") {
 				return [entry];
