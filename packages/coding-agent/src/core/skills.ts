@@ -496,13 +496,34 @@ const MIDSENTENCE_SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*/;
 /** Truncation for descriptions in the `/?` discovery listing. */
 const DISCOVERY_DESCRIPTION_LENGTH = 90;
 
+export interface SkillMidsentenceBlock {
+	/** Full skill name (normalized when the typed name was a unique prefix). */
+	name: string;
+	/** Text of the separate follow-up user message: the `<skill ...>...</skill>` block,
+	 *  followed by the args when present (same shape the native `/skill:name` command
+	 *  produces — the TUI renders it as a collapsible skill invocation + args). */
+	message: string;
+}
+
 export interface ExpandSkillMidsentenceResult {
-	/** Text with every resolvable `/name args` token replaced by its skill block. */
+	/** User text with `/name args` kept VERBATIM (name normalized to the full skill name
+	 *  only when the typed name was a unique prefix of exactly one loaded skill). */
 	text: string;
+	/** Skill bodies to emit as separate follow-up user messages, in order. */
+	blocks: SkillMidsentenceBlock[];
 	/** Names of the skills expanded, in order of appearance (`?` = discovery listing). */
 	expanded: string[];
 	/** Candidate names that did not resolve to a loaded skill (left untouched). */
 	missing: string[];
+}
+
+/** Resolve a typed name to a loaded skill: exact match first, then unique-prefix
+ *  normalization ("make sure it is the full name" — never a guess on ambiguity). */
+function resolveSkill(skills: Skill[], typed: string): Skill | undefined {
+	const exact = skills.find((s) => s.name === typed);
+	if (exact) return exact;
+	const prefixed = skills.filter((s) => s.name.startsWith(typed));
+	return prefixed.length === 1 ? prefixed[0] : undefined;
 }
 
 /**
@@ -521,21 +542,26 @@ function formatSkillDiscoveryListing(skills: Skill[]): string {
 }
 
 /**
- * Expand mid-sentence skill invocations.
+ * Collect mid-sentence skill invocations (`/name args` anywhere from line 2 on).
  *
- * Semantics (mirrors the `/name` word-boundary rules of the prompt-midsentence
- * companion feature, applied to skills):
- * - Trigger `/name` where `name` matches a loaded skill exactly; the slash must be
- *   preceded by whitespace (so `C:/x`, `a/b`, `n/d` never trigger).
+ * Semantics (v2, mirroring the prompt-midsentence companion feature):
+ * - Trigger `/name` where `name` matches a loaded skill exactly, or is a unique prefix
+ *   of exactly one loaded skill (the typed name is then normalized in the text to the
+ *   full skill name); the slash must be preceded by whitespace (so `C:/x`, `a/b`,
+ *   `n/d` never trigger).
  * - The first line of the input is native pi territory (slash commands consume the
  *   whole line); scanning starts at line 2.
  * - `name:` (a colon right after the name, e.g. `/skill:foo`) is not a sigil.
  * - Args run to the end of the line (exclusive); the rest of the text is preserved.
- * - A matching token is replaced in place by the same block the native
- *   `/skill:name` command produces, followed by the args.
- * - `/?` is a discovery alias: replaced in place by the listing of loaded skills.
+ * - The user text is NOT rewritten beyond name normalization: `/name args` stays
+ *   visible (owner mandate: never substitute the name with the body).
+ * - Each skill body is returned as a separate block to be emitted as a follow-up user
+ *   message right after the user text (same `<skill ...>` block + args shape the
+ *   native `/skill:name` command produces).
+ * - `/?` is a discovery alias: replaced in place by the listing of loaded skills
+ *   (a listing is not a body; the name-stays rule concerns bodies).
  * - Fail-soft: unknown names and unreadable files leave the text untouched.
- * - Single pass: the expansion result is never rescanned.
+ * - Single pass: the result is never rescanned.
  *
  * @param readSkillFile injected file reader (keeps this pure and testable).
  */
@@ -546,6 +572,7 @@ export function expandSkillMidsentence(
 ): ExpandSkillMidsentenceResult {
 	let i = 0;
 	let out = "";
+	const blocks: SkillMidsentenceBlock[] = [];
 	const expanded: string[] = [];
 	const missing: string[] = [];
 
@@ -612,7 +639,7 @@ export function expandSkillMidsentence(
 		const lineEnd = relNl === -1 ? text.length : afterName + relNl;
 		const args = text.slice(afterName, lineEnd).trim();
 
-		const skill = skills.find((s) => s.name === name);
+		const skill = resolveSkill(skills, name);
 		if (!skill) {
 			missing.push(name);
 			out += text.slice(i, afterName);
@@ -624,8 +651,12 @@ export function expandSkillMidsentence(
 			const content = readSkillFile(skill.filePath);
 			const body = stripFrontmatter(content).trim();
 			const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
-			out += text.slice(i, start) + (args ? `${skillBlock}\n\n${args}` : skillBlock);
-			expanded.push(name);
+			// v2: the token stays in the user text — verbatim on an exact match, with the
+			// name normalized to the full skill name on a unique-prefix match. The body is
+			// emitted as a separate follow-up message (block + args, native shape).
+			out += text.slice(i, start) + "/" + skill.name + text.slice(afterName, lineEnd);
+			blocks.push({ name: skill.name, message: args ? `${skillBlock}\n\n${args}` : skillBlock });
+			expanded.push(skill.name);
 			i = lineEnd;
 		} catch {
 			missing.push(name);
@@ -634,5 +665,5 @@ export function expandSkillMidsentence(
 		}
 	}
 
-	return { text: out, expanded, missing };
+	return { text: out, blocks, expanded, missing };
 }

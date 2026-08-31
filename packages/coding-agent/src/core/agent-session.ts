@@ -1157,11 +1157,15 @@ export class AgentSession {
 				}
 			}
 
-			// Expand mid-sentence skill invocations (/name args from line 2 on), then
-			// native skill commands (/skill:name args) and prompt templates (/template args)
+			// Collect mid-sentence skill invocations (/name args from line 2 on — name kept,
+			// body emitted as separate follow-up messages), then expand native skill commands
+			// (/skill:name args) and prompt templates (/template args)
 			let expandedText = currentText;
+			let skillBlockMessages: string[] = [];
 			if (expandPromptTemplates) {
-				expandedText = this._expandSkillMidsentence(expandedText);
+				const midsentence = this._collectSkillMidsentence(expandedText);
+				expandedText = midsentence.text;
+				skillBlockMessages = midsentence.blocks;
 				expandedText = this._expandSkillCommand(expandedText);
 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 			}
@@ -1177,6 +1181,9 @@ export class AgentSession {
 					await this._queueFollowUp(expandedText, currentImages);
 				} else {
 					await this._queueSteer(expandedText, currentImages);
+				}
+				for (const block of skillBlockMessages) {
+					await this._queueSteer(block);
 				}
 				preflightResult?.(true);
 				return;
@@ -1225,6 +1232,16 @@ export class AgentSession {
 				content: userContent,
 				timestamp: Date.now(),
 			});
+			// Mid-sentence skill bodies follow the user message as separate user messages
+			// (owner mandate: the name stays in the text, the body arrives as the message
+			// after, collapsible in the TUI via the native skill-invocation rendering).
+			for (const block of skillBlockMessages) {
+				messages.push({
+					role: "user",
+					content: [{ type: "text", text: block }],
+					timestamp: Date.now(),
+				});
+			}
 
 			// Inject any pending "nextTurn" messages as context alongside the user message
 			for (const msg of this._pendingNextTurnMessages) {
@@ -1305,15 +1322,17 @@ export class AgentSession {
 	}
 
 	/**
-	 * Expand mid-sentence skill invocations (`/name args` anywhere from line 2 on,
-	 * word-boundary, args to end of line) into the same block the native
-	 * `/skill:name` command produces. Fail-soft: unknown names and unreadable
-	 * files are left untouched.
+	 * Collect mid-sentence skill invocations (`/name args` anywhere from line 2 on,
+	 * word-boundary, args to end of line). The user text keeps `/name args` (name
+	 * normalized to the full skill name on a unique-prefix match); each skill body is
+	 * returned as a separate follow-up user message in the native `<skill ...>` shape.
+	 * Fail-soft: unknown names and unreadable files are left untouched.
 	 */
-	private _expandSkillMidsentence(text: string): string {
+	private _collectSkillMidsentence(text: string): { text: string; blocks: string[] } {
 		const skills = this.resourceLoader.getSkills().skills;
-		if (skills.length === 0) return text;
-		return expandSkillMidsentence(text, skills, (filePath) => readFileSync(filePath, "utf-8")).text;
+		if (skills.length === 0) return { text, blocks: [] };
+		const result = expandSkillMidsentence(text, skills, (filePath) => readFileSync(filePath, "utf-8"));
+		return { text: result.text, blocks: result.blocks.map((b) => b.message) };
 	}
 
 	/**
@@ -1351,7 +1370,8 @@ export class AgentSession {
 	 * Queue a steering message while the agent is running.
 	 * Delivered after the current assistant turn finishes executing its tool calls,
 	 * before the next LLM call.
-	 * Expands mid-sentence skills, skill commands and prompt templates. Errors on extension commands.
+	 * Expands mid-sentence skills (name kept, body queued as a separate steer message),
+	 * skill commands and prompt templates. Errors on extension commands.
 	 * @param images Optional image attachments to include with the message
 	 * @throws Error if text is an extension command
 	 */
@@ -1362,17 +1382,21 @@ export class AgentSession {
 		}
 
 		// Expand mid-sentence skills, skill commands and prompt templates
-		let expandedText = this._expandSkillMidsentence(text);
-		expandedText = this._expandSkillCommand(expandedText);
+		const midsentence = this._collectSkillMidsentence(text);
+		let expandedText = this._expandSkillCommand(midsentence.text);
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
 		await this._queueSteer(expandedText, images);
+		for (const block of midsentence.blocks) {
+			await this._queueSteer(block);
+		}
 	}
 
 	/**
 	 * Queue a follow-up message to be processed after the agent finishes.
 	 * Delivered only when agent has no more tool calls or steering messages.
-	 * Expands mid-sentence skills, skill commands and prompt templates. Errors on extension commands.
+	 * Expands mid-sentence skills (name kept, body queued as a separate follow-up
+	 * message), skill commands and prompt templates. Errors on extension commands.
 	 * @param images Optional image attachments to include with the message
 	 * @throws Error if text is an extension command
 	 */
@@ -1383,11 +1407,14 @@ export class AgentSession {
 		}
 
 		// Expand mid-sentence skills, skill commands and prompt templates
-		let expandedText = this._expandSkillMidsentence(text);
-		expandedText = this._expandSkillCommand(expandedText);
+		const midsentence = this._collectSkillMidsentence(text);
+		let expandedText = this._expandSkillCommand(midsentence.text);
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
 		await this._queueFollowUp(expandedText, images);
+		for (const block of midsentence.blocks) {
+			await this._queueFollowUp(block);
+		}
 	}
 
 	/**

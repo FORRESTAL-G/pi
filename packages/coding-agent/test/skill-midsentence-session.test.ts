@@ -1,5 +1,8 @@
 /**
- * Integration tests for mid-sentence skill expansion through AgentSession.prompt/steer.
+ * Integration tests for mid-sentence skill collection through AgentSession.prompt/steer.
+ * v2 semantics: the user text keeps `/name args` (name normalized on unique-prefix
+ * match), and each skill body is delivered as a SEPARATE follow-up user message in
+ * the native `<skill ...>` shape (same turn, collapsible in the TUI).
  * Uses a mock streamFn that captures the messages sent to the (fake) LLM — no API keys.
  */
 
@@ -57,7 +60,7 @@ function createAssistantMessage(text: string): AssistantMessage {
 	};
 }
 
-describe("AgentSession mid-sentence skill expansion", () => {
+describe("AgentSession mid-sentence skill collection", () => {
 	let session: AgentSession;
 	let tempDir: string;
 	/** All user-role text messages captured across streamFn calls. */
@@ -146,17 +149,26 @@ Skill instructions here.
 		}
 	});
 
-	it("expands a mid-sentence skill in prompt()", async () => {
+	it("keeps the token in the user text and sends the body as a separate message (prompt)", async () => {
 		await session.prompt("prima fai X\npoi /test-skill arg1 arg2 e dimmi");
 
-		expect(capturedUserTexts).toHaveLength(1);
-		const text = capturedUserTexts[0]!;
-		expect(text.startsWith("prima fai X\npoi <skill name=\"test-skill\"")).toBe(true);
-		expect(text).toContain("Skill instructions here.");
-		expect(text).toContain("\n\narg1 arg2 e dimmi");
+		expect(capturedUserTexts).toHaveLength(2);
+		const [userText, blockMessage] = capturedUserTexts;
+		expect(userText).toBe("prima fai X\npoi /test-skill arg1 arg2 e dimmi");
+		expect(blockMessage!.startsWith('<skill name="test-skill"')).toBe(true);
+		expect(blockMessage).toContain("Skill instructions here.");
+		expect(blockMessage).toContain("\n\narg1 arg2 e dimmi");
 	});
 
-	it("keeps native /skill:name at input start working", async () => {
+	it("normalizes a unique-prefix name in the text, body still separate", async () => {
+		await session.prompt("usa /test-skil questi");
+
+		expect(capturedUserTexts).toHaveLength(2);
+		expect(capturedUserTexts[0]).toBe("usa /test-skill questi");
+		expect(capturedUserTexts[1]!.startsWith('<skill name="test-skill"')).toBe(true);
+	});
+
+	it("keeps native /skill:name at input start working (single inline message)", async () => {
 		await session.prompt("/skill:test-skill arg1");
 
 		expect(capturedUserTexts).toHaveLength(1);
@@ -172,15 +184,15 @@ Skill instructions here.
 		expect(capturedUserTexts[0]).toBe("guarda C:/x e anche n/d ok");
 	});
 
-	it("expands mid-sentence skills in steer()", async () => {
+	it("collects mid-sentence skills in steer() (text kept, body queued separately)", async () => {
 		await session.prompt("parti");
 		await session.steer("poi ancora /test-skill due");
 		await session.prompt("vai");
 
-		const steerText = capturedUserTexts.find((t) => t.includes("poi ancora"));
+		const steerText = capturedUserTexts.find((t) => t === "poi ancora /test-skill due");
 		expect(steerText).toBeDefined();
-		expect(steerText!.startsWith("poi ancora <skill name=\"test-skill\"")).toBe(true);
-		expect(steerText).toContain("\n\ndue");
+		const steerBlock = capturedUserTexts.find((t) => t.startsWith('<skill name="test-skill"') && t.includes("\n\ndue"));
+		expect(steerBlock).toBeDefined();
 		expect(capturedUserTexts).toContain("vai");
 	});
 });
