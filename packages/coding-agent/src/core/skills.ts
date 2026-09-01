@@ -496,6 +496,14 @@ const MIDSENTENCE_SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*/;
 /** Truncation for descriptions in the `/?` discovery listing. */
 const DISCOVERY_DESCRIPTION_LENGTH = 90;
 
+/** MS4: pre-markers inserted by the prompt-midsentence extension next to a token
+ *  (`[→ prompt: x · skill: y]` — names contain no `/` and no `]` by charset) are UI
+ *  chrome in the scanned text, never args and never a sibling token. Stripped from
+ *  the rest-of-line before args/sibling computation; the marker stays visible in the
+ *  emitted text. ponytail: prose legitimately containing a literal `[→ ...]` is also
+ *  stripped from args — acceptable ceiling, upgrade to an escape if it ever bites. */
+const MIDSENTENCE_MARKER_RE = /\s?\[→ [^\]\n]*\]/g;
+
 export interface SkillMidsentenceBlock {
 	/** Full skill name (normalized when the typed name was a unique prefix). */
 	name: string;
@@ -558,6 +566,8 @@ function formatSkillDiscoveryListing(skills: Skill[]): string {
  *   whole line); scanning starts at line 2.
  * - `name:` (a colon right after the name, e.g. `/skill:foo`) is not a sigil.
  * - Args run to the end of the line (exclusive); the rest of the text is preserved.
+ * - MS4: extension pre-markers (`[→ prompt: x · skill: y]`) next to a token are UI
+ *  chrome — stripped from args/sibling computation, kept visible in the text.
  * - The user text is NOT rewritten beyond name normalization: `/name args` stays
  *   visible (owner mandate: never substitute the name with the body).
  * - Each skill body is returned as a separate block to be emitted as a follow-up user
@@ -644,6 +654,8 @@ export function expandSkillMidsentence(
 		// (2) whitespace + another token candidate later on the line (whitespace-preceded
 		//     slash) -> list member -> BARE (sibling tokens must each invoke);
 		// (3) otherwise args run to the end of the line (certified v1/v2 semantics).
+		// MS4: args VALUE and sibling detection are computed on the marker-stripped line;
+		// offsets (scanEnd) stay in the ORIGINAL text so the marker stays visible.
 		const restOfLine = text.slice(afterName);
 		let args = "";
 		let scanEnd = afterName; // where scanning resumes (default: right after the name)
@@ -651,9 +663,10 @@ export function expandSkillMidsentence(
 		if (firstCh && /\s/.test(firstCh)) {
 			const relNl = restOfLine.search(/[\n\r]/);
 			const eol = relNl === -1 ? restOfLine.length : relNl;
-			const nextTok = /\s\/[A-Za-z0-9]/.exec(restOfLine.slice(0, eol));
+			const cleanedLine = restOfLine.slice(0, eol).replace(MIDSENTENCE_MARKER_RE, " ");
+			const nextTok = /\s\/[A-Za-z0-9]/.exec(cleanedLine);
 			if (!nextTok) {
-				args = restOfLine.slice(0, eol).trim();
+				args = cleanedLine.trim();
 				scanEnd = afterName + eol;
 			}
 		}

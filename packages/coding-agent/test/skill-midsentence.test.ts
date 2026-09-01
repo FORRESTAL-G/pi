@@ -218,6 +218,45 @@ describe("expandSkillMidsentence", () => {
 		expect(missing).toEqual(["mx-rail"]);
 	});
 
+	// ── MS4: extension PRE markers are chrome — never args, never a sibling token ──
+
+	it("MS4: pre-marker next to a skill token is stripped from args (no pollution)", () => {
+		const input = "fai X poi /test-skill [→ skill: test-skill] arg1 arg2 e dimmi";
+		const { text, blocks } = run(input);
+		expect(text).toBe(input); // marker stays VISIBLE in the user text
+		expect(blocks[0]!.message.endsWith("</skill>\n\narg1 arg2 e dimmi")).toBe(true);
+	});
+
+	it("MS4: combined both-marker (prompt · skill) also stripped from args", () => {
+		const input = "poi /test-skill [→ prompt: test-skill · skill: test-skill] y";
+		const { text, blocks } = run(input);
+		expect(text).toBe(input);
+		expect(blocks[0]!.message.endsWith("</skill>\n\ny")).toBe(true);
+	});
+
+	it("MS4: markers do not hide same-line sibling tokens (bare list members)", () => {
+		const input = "usa /test-skill [→ skill: test-skill] poi /other-skill [→ skill: other-skill] x";
+		const { text, blocks } = run(input);
+		expect(text).toBe(input);
+		expect(blocks.map((b) => b.name)).toEqual(["test-skill", "other-skill"]);
+		expect(blocks[0]!.message.endsWith("</skill>")).toBe(true); // marker != sibling
+		expect(blocks[1]!.message.endsWith("</skill>\n\nx")).toBe(true); // ultimo: args
+	});
+
+	it("MS4: bare token with marker at EOL stays bare (marker not args)", () => {
+		const input = "vedi /test-skill [→ skill: test-skill]\ndopo";
+		const { text, blocks } = run(input);
+		expect(text).toBe(input);
+		expect(blocks[0]!.message.endsWith("</skill>")).toBe(true);
+	});
+
+	it("MS4 (declared ceiling): prose containing a literal `[→ …]` is stripped from args too", () => {
+		const input = "usa /test-skill [→ nota mia] y";
+		const { text, blocks } = run(input);
+		expect(text).toBe(input);
+		expect(blocks[0]!.message.endsWith("</skill>\n\ny")).toBe(true); // `[→ nota mia]` via
+	});
+
 	it("namespace guard: colon after the name stays literal", () => {
 		for (const t of [
 			"mid /skill:foo args",

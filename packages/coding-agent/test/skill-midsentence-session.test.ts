@@ -77,6 +77,9 @@ describe("AgentSession mid-sentence skill collection", () => {
 	 *  plural `messages` (one per invocation, details.pos = token offset) + `message`
 	 *  joined fallback (must be IGNORED by the MS3 runner) + one foreign no-pos message. */
 	let stubBeforeAgentStart: ((prompt: string) => BeforeAgentStartEventResult | undefined) | null = null;
+	/** MS4: when set, a stub input handler mirrors the ext v1.7 TRANSFORM (PRE marker
+	 *  insertion next to tokens) — the core must then scan marker-laden text. */
+	let stubInputTransform: ((text: string) => string) | null = null;
 
 	beforeEach(async () => {
 		tempDir = join(tmpdir(), `pi-skill-mid-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -124,6 +127,17 @@ Skill instructions here.
 			resolvedPath: "stub-ms3",
 			sourceInfo: createSyntheticSourceInfo("stub-ms3", { source: "test" }),
 			handlers: new Map([
+				[
+					"input",
+					[
+						(event: { text?: string }) => {
+							const out = stubInputTransform?.(event.text ?? "");
+							return out !== undefined && out !== event.text
+								? { action: "transform", text: out }
+								: { action: "continue" };
+						},
+					],
+				],
 				[
 					"before_agent_start",
 					[
@@ -208,6 +222,7 @@ Skill instructions here.
 		capturedUserTexts.length = 0;
 		capturedLog = [];
 		stubBeforeAgentStart = null;
+		stubInputTransform = null;
 		if (session) {
 			session.dispose();
 		}
@@ -313,5 +328,102 @@ Skill instructions here.
 		expect(tail[3]).toMatchObject({ role: "user", text: "FOREIGN" });
 		// the joined fallback must NOT be emitted (runner prefers plural `messages`)
 		expect(capturedLog.some((e) => e.text.includes("JOINED FALLBACK"))).toBe(false);
+	});
+
+	// ── MS4: unified resolution + PRE markers through the real prompt() pipeline ──
+
+	it("MS4 BOTH: same token queued as prompt custom AND skill block (tie pos, zero ghost)", async () => {
+		const input = "intro\nusa /test-skill y";
+		// stub mirrors ext v1.7: /test-skill resolves on BOTH registries → marker + custom
+		stubInputTransform = (text) => text.replace("/test-skill y", "/test-skill [→ prompt: test-skill · skill: test-skill] y");
+		stubBeforeAgentStart = (prompt) => {
+			const pos = prompt.indexOf("/test-skill");
+			return pos > 0
+				? {
+						messages: [
+							{
+								customType: "prompt-midsentence",
+								content: "BODY TEST-SKILL",
+								display: true,
+								details: { names: ["test-skill"], pos },
+							},
+						],
+					}
+				: undefined;
+		};
+
+		await session.prompt(input);
+
+		const expected = "intro\nusa /test-skill [→ prompt: test-skill · skill: test-skill] y";
+		expect(capturedUserTexts[0]).toBe(expected); // marker visible, args intatti
+		// ENTRAMBI in coda: blocco skill + custom prompt, ordine tie-pos (skill prima, stable)
+		const block = capturedUserTexts.find((t) => t.startsWith('<skill name="test-skill"'));
+		expect(block).toBeDefined();
+		expect(block!.endsWith("</skill>\n\ny")).toBe(true); // marker NON negli args
+		const custom = capturedLog.find((e) => e.text === "BODY TEST-SKILL");
+		expect(custom).toMatchObject({ role: "user", text: "BODY TEST-SKILL" }); // custom→user via convertToLlm
+		const blockIdx = capturedLog.findIndex((e) => e.role === "user" && e.text.startsWith('<skill name="test-skill"'));
+		const customIdx = capturedLog.findIndex((e) => e.text === "BODY TEST-SKILL");
+		expect(blockIdx).toBeGreaterThan(-1);
+		expect(customIdx).toBeGreaterThan(blockIdx); // tie → skill block, poi custom
+	});
+
+	it("MS4 mixed line prompt+skill with text after: pos order, zero ghost", async () => {
+		const input = "intro\na /alpha x poi /test-skill y\nfine";
+		// stub v1.7: /alpha = prompt-only (marker, custom), /test-skill = skill-only
+		// (marker, silent) — alpha e' list-member BARE (sibling avanti), test-skill e'
+		// l'ultimo della riga → args a fine riga (`y`)
+		stubInputTransform = (text) =>
+			text
+				.replace("/alpha x", "/alpha [→ prompt: alpha] x")
+				.replace("/test-skill y", "/test-skill [→ skill: test-skill] y");
+		stubBeforeAgentStart = (prompt) => {
+			const pos = prompt.indexOf("/alpha");
+			return pos > 0
+				? {
+						messages: [
+							{ customType: "prompt-midsentence", content: "BODY ALPHA", display: true, details: { names: ["alpha"], pos } },
+						],
+					}
+				: undefined;
+		};
+
+		await session.prompt(input);
+
+		const expected =
+			"intro\na /alpha [→ prompt: alpha] x poi /test-skill [→ skill: test-skill] y\nfine";
+		expect(capturedUserTexts[0]).toBe(expected);
+		// ordine globale per posizione: alpha (custom) prima del blocco test-skill
+		const customIdx = capturedLog.findIndex((e) => e.text === "BODY ALPHA");
+		const blockIdx = capturedLog.findIndex((e) => e.role === "user" && e.text.startsWith('<skill name="test-skill"'));
+		expect(customIdx).toBeGreaterThan(-1);
+		expect(blockIdx).toBe(customIdx + 1);
+		// ZERO GHOST: alpha e' list-member bare (nessuna coda), test-skill e' l'ULTIMO
+		// token della riga → args = `y` (fine riga, semantica certificata); `fine` (riga
+		// DOPO) e la prosa `x poi` restano nel testo utente, MAI nel blocco
+		const block = capturedUserTexts.find((t) => t.startsWith('<skill name="test-skill"'))!;
+		expect(block.endsWith("</skill>\n\ny")).toBe(true);
+		expect(block).not.toContain("fine");
+		expect(block).not.toContain("x poi");
+	});
+
+	it("MS4 SKILL-ONLY: ext silent (no custom), core expands bare name, marker chrome only", async () => {
+		const input = "usa /test-skill y";
+		stubInputTransform = (text) => text.replace("/test-skill y", "/test-skill [→ skill: test-skill] y");
+
+		await session.prompt(input);
+
+		expect(capturedUserTexts[0]).toBe("usa /test-skill [→ skill: test-skill] y");
+		expect(capturedUserTexts[1]!.startsWith('<skill name="test-skill"')).toBe(true);
+		expect(capturedUserTexts[1]!.endsWith("</skill>\n\ny")).toBe(true);
+		// ext SILENT: nessun corpo prompt in coda (solo user text + blocco skill)
+		expect(capturedUserTexts).toHaveLength(2);
+	});
+
+	it("MS4 NEITHER: unknown name is left verbatim, nothing queued", async () => {
+		const input = "usa /mx-rail y";
+		await session.prompt(input);
+		expect(capturedUserTexts).toHaveLength(1);
+		expect(capturedUserTexts[0]).toBe(input);
 	});
 });
