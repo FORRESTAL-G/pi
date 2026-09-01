@@ -1101,6 +1101,10 @@ export interface MessageEndEventResult {
 
 export interface BeforeAgentStartEventResult {
 	message?: Pick<CustomMessage, "customType" | "content" | "display" | "details">;
+	/** MS3 mid-sentence multi-invocation: one separate message per invocation. When
+	 *  non-empty, the runner takes these and ignores `message` (kept by extensions as a
+	 *  joined pre-MS3 fallback - old cores only read `message`). */
+	messages?: Array<Pick<CustomMessage, "customType" | "content" | "display" | "details">>;
 	/** Replace the system prompt for this turn. If multiple extensions return this, they are chained. */
 	systemPrompt?: string;
 }

@@ -1113,7 +1113,11 @@ export class ExtensionRunner {
 
 					if (handlerResult) {
 						const result = handlerResult as BeforeAgentStartEventResult;
-						if (result.message) {
+						// MS3: prefer the plural form (one message per mid-sentence invocation);
+						// `message` stays the single-message fallback for pre-MS3 extensions.
+						if (result.messages?.length) {
+							messages.push(...result.messages);
+						} else if (result.message) {
 							messages.push(result.message);
 						}
 						if (result.systemPrompt !== undefined) {

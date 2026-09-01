@@ -3,6 +3,9 @@
  * v2 semantics: the user text keeps `/name args` (name normalized on unique-prefix
  * match), and each skill body is delivered as a SEPARATE follow-up user message in
  * the native `<skill ...>` shape (same turn, collapsible in the TUI).
+ * MS3 (multi-invocation): one message PER invocation, and skill blocks are INTERLEAVED
+ * with prompt-midsentence extension messages by token position in the user text —
+ * certified here with a stub extension mirroring ext v1.6 (plural `messages` + pos).
  * Uses a mock streamFn that captures the messages sent to the (fake) LLM — no API keys.
  */
 
@@ -18,9 +21,12 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
+import { convertToLlm } from "../src/core/messages.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import type { ResourceLoader } from "../src/core/resource-loader.ts";
 import { type Skill } from "../src/core/skills.ts";
+import type { Extension } from "../src/core/extensions/types.ts";
+import type { BeforeAgentStartEventResult } from "../src/core/extensions/types.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -65,6 +71,12 @@ describe("AgentSession mid-sentence skill collection", () => {
 	let tempDir: string;
 	/** All user-role text messages captured across streamFn calls. */
 	const capturedUserTexts: string[] = [];
+	/** Full ordered message log from the LAST streamFn call (role + text / customType). */
+	let capturedLog: Array<{ role: string; text: string; customType?: string }> = [];
+	/** When set, a stub extension mirrors prompt-midsentence v1.6 for /alpha and /gamma:
+	 *  plural `messages` (one per invocation, details.pos = token offset) + `message`
+	 *  joined fallback (must be IGNORED by the MS3 runner) + one foreign no-pos message. */
+	let stubBeforeAgentStart: ((prompt: string) => BeforeAgentStartEventResult | undefined) | null = null;
 
 	beforeEach(async () => {
 		tempDir = join(tmpdir(), `pi-skill-mid-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -92,10 +104,46 @@ Skill instructions here.
 			disableModelInvocation: false,
 		};
 
+		const otherDir = join(tempDir, "skills", "other-skill");
+		mkdirSync(otherDir, { recursive: true });
+		writeFileSync(
+				join(otherDir, "SKILL.md"),
+			"---\nname: other-skill\ndescription: Another test skill.\n---\n\n# Other Skill\n\nOther instructions.\n",
+		);
+		const otherSkill: Skill = {
+			name: "other-skill",
+			description: "Another test skill.",
+			filePath: join(otherDir, "SKILL.md"),
+			baseDir: otherDir,
+			sourceInfo: createSyntheticSourceInfo(join(otherDir, "SKILL.md"), { source: "test" }),
+			disableModelInvocation: false,
+		};
+
+		const stubExtension: Extension = {
+			path: "stub-ms3",
+			resolvedPath: "stub-ms3",
+			sourceInfo: createSyntheticSourceInfo("stub-ms3", { source: "test" }),
+			handlers: new Map([
+				[
+					"before_agent_start",
+					[
+						async (event: { prompt?: string }) =>
+							stubBeforeAgentStart?.(event.prompt ?? "") ?? undefined,
+					],
+				],
+			]),
+			tools: new Map(),
+			messageRenderers: new Map(),
+			commands: new Map(),
+			flags: new Map(),
+			shortcuts: new Map(),
+		};
+
 		const baseLoader = createTestResourceLoader();
 		const resourceLoader: ResourceLoader = {
 			...baseLoader,
-			getSkills: () => ({ skills: [skill], diagnostics: [] }),
+			getSkills: () => ({ skills: [skill, otherSkill], diagnostics: [] }),
+			getExtensions: () => ({ ...baseLoader.getExtensions(), extensions: [stubExtension] }),
 		};
 
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
@@ -106,7 +154,24 @@ Skill instructions here.
 				systemPrompt: "Test",
 				tools: [],
 			},
+			convertToLlm,
 			streamFn: (_model, context) => {
+				capturedLog = context.messages.map((msg) => {
+					if (msg.role === "user") {
+						return { role: "user", text: msg.content.filter((p) => p.type === "text").map((p) => p.text).join("\n") };
+					}
+					const cm = msg as { role: string; customType?: string; content: unknown };
+						const text =
+							typeof cm.content === "string"
+								? cm.content
+								: Array.isArray(cm.content)
+									? cm.content
+											.filter((p: { type: string; text?: string }) => p && p.type === "text")
+											.map((p: { text?: string }) => p.text ?? "")
+											.join("\n")
+									: "";
+					return { role: cm.role, text, customType: cm.customType };
+				});
 				for (const msg of context.messages) {
 					if (msg.role === "user") {
 						for (const part of msg.content) {
@@ -141,6 +206,8 @@ Skill instructions here.
 
 	afterEach(async () => {
 		capturedUserTexts.length = 0;
+		capturedLog = [];
+		stubBeforeAgentStart = null;
 		if (session) {
 			session.dispose();
 		}
@@ -194,5 +261,57 @@ Skill instructions here.
 		const steerBlock = capturedUserTexts.find((t) => t.startsWith('<skill name="test-skill"') && t.includes("\n\ndue"));
 		expect(steerBlock).toBeDefined();
 		expect(capturedUserTexts).toContain("vai");
+	});
+
+	it("MS3: two skills in one message → two separate block messages in text order", async () => {
+		await session.prompt("intro\nprima /test-skill uno\npoi /other-skill due\nfine");
+
+		expect(capturedUserTexts).toHaveLength(3);
+		expect(capturedUserTexts[0]).toBe("intro\nprima /test-skill uno\npoi /other-skill due\nfine");
+		expect(capturedUserTexts[1]!.startsWith('<skill name="test-skill"')).toBe(true);
+		expect(capturedUserTexts[1]).toContain("\n\nuno");
+		expect(capturedUserTexts[2]!.startsWith('<skill name="other-skill"')).toBe(true);
+		expect(capturedUserTexts[2]).toContain("\n\ndue");
+	});
+
+	it("MS3: mixed skill+prompt tokens interleave by text position (stub ext mirrors v1.6)", async () => {
+		const input = "intro\nusa /alpha x\npoi /test-skill y\ne /gamma z fine";
+		stubBeforeAgentStart = (prompt) => {
+			const messages: NonNullable<BeforeAgentStartEventResult["messages"]> = [];
+			for (const name of ["alpha", "gamma"]) {
+				const pos = prompt.indexOf(`/${name}`);
+				if (pos > 0 && /\s/.test(prompt[pos - 1]!)) {
+					messages.push({
+						customType: "prompt-midsentence",
+						content: `BODY ${name.toUpperCase()}`,
+						display: true,
+						details: { names: [name], pos },
+					});
+				}
+			}
+			// foreign extension message without pos → sorts last, arrival order
+			messages.push({ customType: "foreign-ext", content: "FOREIGN", display: true, details: {} });
+			return {
+				// v1.5 joined fallback: the MS3 runner must IGNORE it when `messages` is set
+				message: { customType: "prompt-midsentence", content: "JOINED FALLBACK", display: true, details: { names: ["fallback"] } },
+				messages,
+			};
+		};
+
+		await session.prompt(input);
+
+		const idx = capturedLog.findIndex((e) => e.role === "user" && e.text === input);
+		expect(idx).toBeGreaterThanOrEqual(0);
+		const tail = capturedLog.slice(idx + 1, idx + 5);
+		expect(tail).toHaveLength(4);
+		// global order by token position: alpha (prompt, custom) → test-skill (skill,
+		// user block) → gamma (prompt, custom) → foreign (no pos, last)
+		expect(tail[0]).toMatchObject({ role: "user", text: "BODY ALPHA" });
+		expect(tail[1]!.role).toBe("user");
+		expect(tail[1]!.text.startsWith('<skill name="test-skill"')).toBe(true);
+		expect(tail[2]).toMatchObject({ role: "user", text: "BODY GAMMA" });
+		expect(tail[3]).toMatchObject({ role: "user", text: "FOREIGN" });
+		// the joined fallback must NOT be emitted (runner prefers plural `messages`)
+		expect(capturedLog.some((e) => e.text.includes("JOINED FALLBACK"))).toBe(false);
 	});
 });

@@ -99,7 +99,7 @@ import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
-import { expandSkillMidsentence } from "./skills.ts";
+import { type SkillMidsentenceBlock, expandSkillMidsentence } from "./skills.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -1161,7 +1161,7 @@ export class AgentSession {
 			// body emitted as separate follow-up messages), then expand native skill commands
 			// (/skill:name args) and prompt templates (/template args)
 			let expandedText = currentText;
-			let skillBlockMessages: string[] = [];
+			let skillBlockMessages: SkillMidsentenceBlock[] = [];
 			if (expandPromptTemplates) {
 				const midsentence = this._collectSkillMidsentence(expandedText);
 				expandedText = midsentence.text;
@@ -1183,7 +1183,7 @@ export class AgentSession {
 					await this._queueSteer(expandedText, currentImages);
 				}
 				for (const block of skillBlockMessages) {
-					await this._queueSteer(block);
+					await this._queueSteer(block.message);
 				}
 				preflightResult?.(true);
 				return;
@@ -1232,17 +1232,6 @@ export class AgentSession {
 				content: userContent,
 				timestamp: Date.now(),
 			});
-			// Mid-sentence skill bodies follow the user message as separate user messages
-			// (owner mandate: the name stays in the text, the body arrives as the message
-			// after, collapsible in the TUI via the native skill-invocation rendering).
-			for (const block of skillBlockMessages) {
-				messages.push({
-					role: "user",
-					content: [{ type: "text", text: block }],
-					timestamp: Date.now(),
-				});
-			}
-
 			// Inject any pending "nextTurn" messages as context alongside the user message
 			for (const msg of this._pendingNextTurnMessages) {
 				messages.push(msg);
@@ -1256,20 +1245,42 @@ export class AgentSession {
 				this._baseSystemPrompt,
 				this._baseSystemPromptOptions,
 			);
-			// Add all custom messages from extensions
-			if (result?.messages) {
-				for (const msg of result.messages) {
-					messages.push({
-						role: "custom",
-						customType: msg.customType,
-						// Untyped extensions can pass null/missing content; normalize at ingestion.
-						content: msg.content ?? [],
-						display: msg.display,
-						details: msg.details,
+			// MS3 (multi-invocation): mid-sentence bodies follow the user message as separate
+			// messages - ONE per invocation, INTERLEAVED by token position in the user text
+			// (owner mandate: mixed skill/prompt tokens queue in the order they appear).
+			// Skill blocks (core) carry pos in the scanned text; prompt-midsentence extension
+			// messages carry details.pos computed on the very same text. Extension messages
+			// without a position (foreign extensions, or pos missing) sort last, arrival order.
+			const postUser: Array<{ pos: number; msg: AgentMessage }> = [];
+			for (const block of skillBlockMessages) {
+				postUser.push({
+					pos: block.pos,
+					msg: {
+						role: "user",
+						content: [{ type: "text", text: block.message }],
 						timestamp: Date.now(),
-					});
-				}
+					},
+				});
 			}
+			for (const msg of result?.messages ?? []) {
+				const customMsg: AgentMessage = {
+					role: "custom",
+					customType: msg.customType,
+					// Untyped extensions can pass null/missing content; normalize at ingestion.
+					content: msg.content ?? [],
+					display: msg.display,
+					details: msg.details,
+					timestamp: Date.now(),
+				};
+				const rawPos =
+					msg.customType === "prompt-midsentence" ? Number((msg.details as { pos?: unknown })?.pos) : NaN;
+				postUser.push({ pos: Number.isFinite(rawPos) ? rawPos : Infinity, msg: customMsg });
+			}
+			postUser.sort((a, b) => a.pos - b.pos); // stable: ties keep emission order
+			for (const entry of postUser) {
+				messages.push(entry.msg);
+			}
+
 			// Apply extension-modified system prompt, or reset to base
 			if (result?.systemPrompt !== undefined) {
 				this._systemPromptOverride = result.systemPrompt;
@@ -1328,11 +1339,11 @@ export class AgentSession {
 	 * returned as a separate follow-up user message in the native `<skill ...>` shape.
 	 * Fail-soft: unknown names and unreadable files are left untouched.
 	 */
-	private _collectSkillMidsentence(text: string): { text: string; blocks: string[] } {
+	private _collectSkillMidsentence(text: string): { text: string; blocks: SkillMidsentenceBlock[] } {
 		const skills = this.resourceLoader.getSkills().skills;
 		if (skills.length === 0) return { text, blocks: [] };
 		const result = expandSkillMidsentence(text, skills, (filePath) => readFileSync(filePath, "utf-8"));
-		return { text: result.text, blocks: result.blocks.map((b) => b.message) };
+		return { text: result.text, blocks: result.blocks };
 	}
 
 	/**
@@ -1388,7 +1399,7 @@ export class AgentSession {
 
 		await this._queueSteer(expandedText, images);
 		for (const block of midsentence.blocks) {
-			await this._queueSteer(block);
+			await this._queueSteer(block.message);
 		}
 	}
 
@@ -1413,7 +1424,7 @@ export class AgentSession {
 
 		await this._queueFollowUp(expandedText, images);
 		for (const block of midsentence.blocks) {
-			await this._queueFollowUp(block);
+			await this._queueFollowUp(block.message);
 		}
 	}
 

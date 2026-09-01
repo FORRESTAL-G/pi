@@ -503,6 +503,11 @@ export interface SkillMidsentenceBlock {
 	 *  followed by the args when present (same shape the native `/skill:name` command
 	 *  produces — the TUI renders it as a collapsible skill invocation + args). */
 	message: string;
+	/** MS3: offset of the `/` token in the SCANNED text. The prompt-midsentence
+	 *  extension reports its tokens with the same coordinate system (details.pos on its
+	 *  custom messages, computed on the very same transformed text) - together they
+	 *  drive the global position-ordered interleaving in AgentSession.prompt. */
+	pos: number;
 }
 
 export interface ExpandSkillMidsentenceResult {
@@ -634,10 +639,24 @@ export function expandSkillMidsentence(
 			continue;
 		}
 
-		// Args run to the end of the line (exclusive).
-		const relNl = text.slice(afterName).search(/[\n\r]/);
-		const lineEnd = relNl === -1 ? text.length : afterName + relNl;
-		const args = text.slice(afterName, lineEnd).trim();
+		// Args (MS3.1, owner bugfix 01/09): the rest of the sentence is NOT args.
+		// (1) non-whitespace char right after the name (e.g. `/name)`) -> BARE token;
+		// (2) whitespace + another token candidate later on the line (whitespace-preceded
+		//     slash) -> list member -> BARE (sibling tokens must each invoke);
+		// (3) otherwise args run to the end of the line (certified v1/v2 semantics).
+		const restOfLine = text.slice(afterName);
+		let args = "";
+		let scanEnd = afterName; // where scanning resumes (default: right after the name)
+		const firstCh = restOfLine.charAt(0);
+		if (firstCh && /\s/.test(firstCh)) {
+			const relNl = restOfLine.search(/[\n\r]/);
+			const eol = relNl === -1 ? restOfLine.length : relNl;
+			const nextTok = /\s\/[A-Za-z0-9]/.exec(restOfLine.slice(0, eol));
+			if (!nextTok) {
+				args = restOfLine.slice(0, eol).trim();
+				scanEnd = afterName + eol;
+			}
+		}
 
 		const skill = resolveSkill(skills, name);
 		if (!skill) {
@@ -654,10 +673,12 @@ export function expandSkillMidsentence(
 			// v2: the token stays in the user text — verbatim on an exact match, with the
 			// name normalized to the full skill name on a unique-prefix match. The body is
 			// emitted as a separate follow-up message (block + args, native shape).
-			out += text.slice(i, start) + "/" + skill.name + text.slice(afterName, lineEnd);
-			blocks.push({ name: skill.name, message: args ? `${skillBlock}\n\n${args}` : skillBlock });
+			out += text.slice(i, start) + "/" + skill.name + text.slice(afterName, scanEnd);
+			// MS3: pos = offset of the token in this input text, for the global
+			// skill/prompt interleaving by position.
+			blocks.push({ name: skill.name, message: args ? `${skillBlock}\n\n${args}` : skillBlock, pos: start });
 			expanded.push(skill.name);
-			i = lineEnd;
+			i = scanEnd;
 		} catch {
 			missing.push(name);
 			out += text.slice(i, afterName);

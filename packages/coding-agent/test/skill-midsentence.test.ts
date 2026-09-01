@@ -9,6 +9,8 @@
  * - the user text KEEPS `/name args` verbatim (name normalized to the full skill
  *   name only on a unique-prefix match — never substituted with the body)
  * - each skill body is returned as a separate block (native `<skill ...>` shape)
+ * - MS3: blocks carry `pos` (offset of the `/` token in the scanned text) used by
+ *   AgentSession.prompt for the global position-ordered skill/prompt interleaving
  * - fail-soft on unknown names
  * - `/?` discovery listing
  * - single pass (the result is never rescanned)
@@ -162,6 +164,49 @@ describe("expandSkillMidsentence", () => {
 		expect(blocks[0]!.message).toContain('<skill name="test-skill"');
 		expect(blocks[1]!.message).toContain('<skill name="other-skill"');
 		expect(expanded).toEqual(["test-skill", "other-skill"]);
+	});
+
+	it("MS3: blocks carry the offset of the / token in the scanned text (pos)", () => {
+		const input = "a /test-skill uno\nb /other-skill due";
+		const { blocks } = run(input);
+		expect(blocks[0]!.pos).toBe(input.indexOf("/test-skill"));
+		expect(blocks[1]!.pos).toBe(input.indexOf("/other-skill"));
+		// pos survives name normalization (the / offset is the same in input and output)
+		const input2 = "usa /test-skil e\npoi /other-skill";
+		const r2 = run(input2);
+		expect(r2.blocks[0]!.pos).toBe(input2.indexOf("/test-skil"));
+		expect(r2.blocks[1]!.pos).toBe(input2.indexOf("/other-skill"));
+	});
+
+	it("MS3.1 regression (owner live bug 01/09): prose after a token is NEVER args - no ghost", () => {
+		// forma ESATTA del messaggio owner: token inside parens, prosa fino a fine riga
+		const input =
+			"...checklist (vedi metodologia /arc /first-mate e /secondmate e /test-skill) e darmi un report su cosa trovi e cosa va fixato.\n\nTi passo il transcript in questo file:";
+		const { text, blocks, missing } = run(input);
+		expect(text).toBe(input); // VERBATIM: token al suo posto, prosa intatta
+		expect(blocks).toHaveLength(1); // solo herdr-control e' una skill qui
+		expect(blocks[0]!.name).toBe("test-skill");
+		// NESSUNA coda args (il vecchio comportamento appendeva `) e darmi...` -> fantasma)
+		expect(blocks[0]!.message.endsWith("</skill>")).toBe(true);
+		expect(blocks[0]!.message).not.toContain("darmi un report");
+		expect(missing).toEqual(["arc", "first-mate", "secondmate"]); // non-skill: fail-soft
+	});
+
+	it("MS3.1: same-line sibling tokens are list members (bare); only the LAST takes trailing args", () => {
+		const input = "usa /test-skill e poi /other-skill insieme";
+		const { text, blocks } = run(input);
+		expect(text).toBe(input);
+		expect(blocks.map((b) => b.name)).toEqual(["test-skill", "other-skill"]);
+		expect(blocks[0]!.message.endsWith("</skill>")).toBe(true); // list member: bare
+		expect(blocks[1]!.message.endsWith("</skill>\n\ninsieme")).toBe(true); // ultimo: args di riga
+	});
+
+	it("MS3.1: non-whitespace right after the name (e.g. `/name)`) is a bare token", () => {
+		const input = "prova e /test-skill) e dimmi";
+		const { text, blocks } = run(input);
+		expect(text).toBe(input);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0]!.message.endsWith("</skill>")).toBe(true);
 	});
 
 	it("fail-soft: unknown skill leaves text untouched", () => {
