@@ -491,7 +491,7 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 // ---------------------------------------------------------------------------
 
 /** Charset of valid skill names per the Agent Skills spec. */
-const MIDSENTENCE_SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*/;
+const MIDSENTENCE_SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9-]*/;
 
 /** Truncation for descriptions in the `/?` discovery listing. */
 const DISCOVERY_DESCRIPTION_LENGTH = 90;
@@ -535,6 +535,12 @@ export interface ExpandSkillMidsentenceResult {
 function resolveSkill(skills: Skill[], typed: string): Skill | undefined {
 	const exact = skills.find((s) => s.name === typed);
 	if (exact) return exact;
+	// v3 (owner mandate 2026-09-02, the /checkpoint-vs-CHECKPOINT.md case): exact match
+	// always wins; if the typed name is not real but a UNIQUE case-insensitive variant
+	// exists, use it (same normalization philosophy as unique prefixes).
+	const lower = typed.toLowerCase();
+	const ci = skills.filter((s) => s.name.toLowerCase() === lower);
+	if (ci.length === 1) return ci[0];
 	const prefixed = skills.filter((s) => s.name.startsWith(typed));
 	return prefixed.length === 1 ? prefixed[0] : undefined;
 }
@@ -557,7 +563,8 @@ function formatSkillDiscoveryListing(skills: Skill[]): string {
 /**
  * Collect mid-sentence skill invocations (`/name args` anywhere from line 2 on).
  *
- * Semantics (v2, mirroring the prompt-midsentence companion feature):
+ * Semantics (v2, mirroring the prompt-midsentence companion feature; v3 adds unique
+ * case-insensitive variant normalization):
  * - Trigger `/name` where `name` matches a loaded skill exactly, or is a unique prefix
  *   of exactly one loaded skill (the typed name is then normalized in the text to the
  *   full skill name); the slash must be preceded by whitespace (so `C:/x`, `a/b`,
