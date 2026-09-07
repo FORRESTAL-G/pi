@@ -119,13 +119,25 @@ describe("edit tool TUI rendering", () => {
 		await waitForRender();
 		await waitForRender();
 
+		// Collapsed by default: header + +/- stats, no diff body.
 		const callOnlyRender = await waitForRenderedText(
+			() => component.render(80).join("\n"),
+			"+10",
+			() => tui.requestRender(true),
+		);
+		expect(callOnlyRender).toContain("edit");
+		expect(callOnlyRender).toContain("to expand");
+		expect(callOnlyRender).not.toContain("line 950 changed");
+
+		// Expanding shows the full diff in the call preview.
+		component.setExpanded(true);
+		tui.requestRender();
+		const expandedRender = await waitForRenderedText(
 			() => component.render(80).join("\n"),
 			"line 50 changed",
 			() => tui.requestRender(true),
 		);
-		expect(callOnlyRender).toContain("edit");
-		expect(callOnlyRender).toContain("line 950 changed");
+		expect(expandedRender).toContain("line 950 changed");
 
 		const redrawsBeforeResult = tui.fullRedraws;
 		const clearsBeforeResult = terminal.fullClearCount;
@@ -193,6 +205,14 @@ describe("edit tool TUI rendering", () => {
 		await waitForRender();
 		await waitForRender();
 
+		// Collapsed by default: stats only; expanding reconstructs the diff from the settled result.
+		const collapsed = component.render(80).join("\n");
+		expect(collapsed).toContain("+2");
+		expect(collapsed).not.toContain("line 50 changed");
+
+		component.setExpanded(true);
+		tui.requestRender();
+		await waitForRender();
 		const rendered = component.render(80).join("\n");
 		expect(rendered).toContain("line 50 changed");
 		expect(rendered).toContain("line 150 changed");

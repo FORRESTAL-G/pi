@@ -8,6 +8,7 @@
 
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { renderDiff } from "../../../modes/interactive/components/diff.ts";
+import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition } from "../../extensions/types.ts";
 import type { EditToolDetails } from "../edit.ts";
@@ -84,6 +85,16 @@ function formatEditCall(args: RenderableEditArgs | undefined, theme: Theme, cwd:
 	const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
 	return `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
 }
+
+function countDiffChanges(diff: string): { added: number; removed: number } {
+	let added = 0;
+	let removed = 0;
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+")) added++;
+		else if (line.startsWith("-")) removed++;
+	}
+	return { added, removed };
+}
 function formatEditResult(
 	args: RenderableEditArgs | undefined,
 	preview: EditPreview | undefined,
@@ -133,6 +144,7 @@ function buildEditCallComponent(
 	args: RenderableEditArgs | undefined,
 	theme: Theme,
 	cwd: string,
+	expanded: boolean,
 ): EditCallRenderComponent {
 	component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
 	component.clear();
@@ -142,10 +154,27 @@ function buildEditCallComponent(
 		return component;
 	}
 
-	const body =
-		"error" in component.preview ? theme.fg("error", component.preview.error) : renderDiff(component.preview.diff);
+	if ("error" in component.preview) {
+		component.addChild(new Spacer(1));
+		component.addChild(new Text(theme.fg("error", component.preview.error), 0, 0));
+		return component;
+	}
+
+	// Collapsed by default: header + +/- stats only; full diff behind the expand toggle.
+	if (!expanded) {
+		const { added, removed } = countDiffChanges(component.preview.diff);
+		const stats =
+			theme.fg("toolDiffAdded", `+${added}`) +
+			theme.fg("toolDiffRemoved", ` −${removed}`) +
+			theme.fg("muted", " ") +
+			keyHint("app.tools.expand", "to expand");
+		component.addChild(new Spacer(1));
+		component.addChild(new Text(stats, 0, 0));
+		return component;
+	}
+
 	component.addChild(new Spacer(1));
-	component.addChild(new Text(body, 0, 0));
+	component.addChild(new Text(renderDiff(component.preview.diff), 0, 0));
 	return component;
 }
 function setEditPreview(
@@ -192,7 +221,13 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 			});
 		}
 
-		return buildEditCallComponent(component, args as RenderableEditArgs | undefined, theme, context.cwd);
+		return buildEditCallComponent(
+			component,
+			args as RenderableEditArgs | undefined,
+			theme,
+			context.cwd,
+			context.expanded,
+		);
 	},
 	renderResult(result, _options, theme, context) {
 		const callComponent = context.state.callComponent;
@@ -215,7 +250,13 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 				changed = true;
 			}
 			if (changed) {
-				buildEditCallComponent(callComponent, context.args as RenderableEditArgs | undefined, theme, context.cwd);
+				buildEditCallComponent(
+					callComponent,
+					context.args as RenderableEditArgs | undefined,
+					theme,
+					context.cwd,
+					context.expanded,
+				);
 			}
 		}
 

@@ -27,6 +27,8 @@ class WriteCallRenderComponent extends Text {
 	}
 }
 const WRITE_PARTIAL_FULL_HIGHLIGHT_LINES = 50;
+/** Collapsed (settled) preview: path + line count + this many snippet lines. */
+const WRITE_COLLAPSED_SNIPPET_LINES = 3;
 function highlightSingleLine(line: string, lang: string): string {
 	const highlighted = highlightCode(line, lang);
 	return highlighted[0] ?? "";
@@ -107,22 +109,31 @@ function formatWriteCall(
 
 	if (fileContent === null) {
 		text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
-	} else if (fileContent) {
-		const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
-		const renderedLines = lang
-			? (cache?.highlightedLines ?? highlightCode(replaceTabs(normalizeDisplayText(fileContent)), lang))
-			: normalizeDisplayText(fileContent).split("\n");
-		const lines = trimTrailingEmptyLines(renderedLines);
-		const totalLines = lines.length;
-		const maxLines = options.expanded ? lines.length : 10;
-		const displayLines = lines.slice(0, maxLines);
-		const remaining = lines.length - maxLines;
-		text += `\n\n${displayLines.map((line) => (lang ? line : theme.fg("toolOutput", replaceTabs(line)))).join("\n")}`;
-		if (remaining > 0) {
-			text += `${theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
-		}
+		return text;
+	}
+	if (!fileContent) {
+		return text;
 	}
 
+	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+	const renderedLines = lang
+		? (cache?.highlightedLines ?? highlightCode(replaceTabs(normalizeDisplayText(fileContent)), lang))
+		: normalizeDisplayText(fileContent).split("\n");
+	const lines = trimTrailingEmptyLines(renderedLines);
+	const totalLines = lines.length;
+
+	// While the call streams, keep the live rolling preview. Once settled, collapse to
+	// path + line count + a short snippet; the full content is behind the expand toggle.
+	const maxLines =
+		!options.isPartial && !options.expanded ? WRITE_COLLAPSED_SNIPPET_LINES : options.expanded ? lines.length : 10;
+	const displayLines = lines.slice(0, maxLines);
+	const remaining = lines.length - maxLines;
+	text += `\n${theme.fg("muted", `${totalLines} lines`)}`;
+	text += `\n\n${displayLines.map((line) => (lang ? line : theme.fg("toolOutput", replaceTabs(line)))).join("\n")}`;
+	if (remaining > 0) {
+		text += theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total,`);
+		text += ` ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+	}
 	return text;
 }
 function formatWriteResult(

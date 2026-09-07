@@ -1,0 +1,82 @@
+ FAIL  test/agent-session-concurrent.test.ts > AgentSession concurrent prompt guard > should allow followUp() while streaming
+ FAIL  test/agent-session-concurrent.test.ts > AgentSession concurrent prompt guard > should allow steer() while streaming
+ FAIL  test/agent-session-concurrent.test.ts > AgentSession concurrent prompt guard > should queue extension-origin steering messages while streaming
+ FAIL  test/config.test.ts > detectInstallMethod > does not self-update when npm install path is not writable
+ FAIL  test/config.test.ts > detectInstallMethod > self-update respects configured npmCommand
+ FAIL  test/config.test.ts > detectInstallMethod > self-updates bun global installs from bun pm bin
+ FAIL  test/config.test.ts > detectInstallMethod > self-updates pnpm v11 global installs resolved through the store
+ FAIL  test/config.test.ts > detectInstallMethod > self-updates renamed bun global installs by removing the old package first
+ FAIL  test/config.test.ts > detectInstallMethod > self-updates renamed pnpm global installs by removing the old package first
+ FAIL  test/config.test.ts > detectInstallMethod > self-updates renamed yarn global installs by removing the old package first
+ FAIL  test/experimental-cli-entry.test.ts > stable and development CLI entrypoints > does not dispatch experimental commands from the stable entrypoint
+ FAIL  test/experimental-cli-entry.test.ts > stable and development CLI entrypoints > falls back to the stable CLI when experiments are disabled
+ FAIL  test/experimental-cli-entry.test.ts > stable and development CLI entrypoints > keeps experimental dispatch in the development entrypoint
+ FAIL  test/experimental-presentation-facets.test.ts > server-selected presentation facets > builds conventional plugin entries into the server-owned plugin cache
+ FAIL  test/experimental-presentation-facets.test.ts > server-selected presentation facets > builds the example plugin package without a package-owned build script
+ FAIL  test/experimental-presentation-facets.test.ts > server-selected presentation facets > restores plugin package selections for later server generations
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > composes management attachment with Session service hydration
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > discovers workers after replacing the server
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > fences superseded attachment hydration by attachment generation
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > hydrates and mutates server Session services across framed clients
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > hydrates and updates the Models service across concurrent framed clients
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > loads conventional Session facets from multiple configured plugin packages
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > observes keyed service instances and fences replacement generations over framed transport
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > passes client plugin packages to a cold server and restores them for its next generation
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > preserves an existing Session model when the server default changes
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > rechecks an auto-discovered server after a version mismatch
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > rejects a duplicate session ID within one durable repository
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > rejects model options when discovery selects an existing server
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > replicates terminal operation state after consecutive prompts
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > reports missing and ambiguous session selections
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > restores tracked sessions that are outside the replacement catalog
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > retires a cold server after its only Session attachment disconnects
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > retires an unclaimed idle worker after replacement demand expires
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > runs and discovers multiple logical servers from one directory
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > serializes concurrent cold activation and retires after both clients leave
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > server runtime replaces an exited worker on the next attach
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > starts one process per attached session and stops them during shutdown
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > stops an idle Session worker after its client disconnects
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > streams prompt events through the worker-owned service provider
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > uses PI_SERVER_DIR and PI_SERVER_ID
+ FAIL  test/experimental-remote-runtime.test.ts > experimental durable server composition > uses the most recently selected model for a new Session
+ FAIL  test/experimental-session-directory.test.ts > experimental server session directory > uses the experimental directory under the configured agent directory by default
+ FAIL  test/external-editor.test.ts > editInExternalEditor > edits a prompt inside a private temporary directory
+ FAIL  test/external-editor.test.ts > editInExternalEditor > keeps the original content when the editor exits unsuccessfully
+ FAIL  test/external-editor.test.ts > editInExternalEditor > returns empty content when the editor clears the prompt
+ FAIL  test/file-mutation-queue.test.ts > withFileMutationQueue > uses the same queue for symlink aliases
+ FAIL  test/footer-width.test.ts > formatCwdForFooter > abbreviates the home directory and descendants
+ FAIL  test/interactive-mode-status.test.ts > InteractiveMode.showLoadedResources > shows context paths relative to cwd while preserving full external paths
+ FAIL  test/interactive-mode-status.test.ts > InteractiveMode.showLoadedResources > shows full context paths when expanded
+ FAIL  test/interactive-mode-suspend.test.ts > InteractiveMode.handleCtrlZ > cleans up the temporary handlers if suspension fails
+ FAIL  test/interactive-mode-suspend.test.ts > InteractiveMode.handleCtrlZ > keeps the process alive while suspended and restores the TUI on SIGCONT
+ FAIL  test/model-resolver.test.ts > default model selection > built-in defaults exist in generated provider catalogs
+ FAIL  test/model-runtime-cloudflare-compat.test.ts > ModelRegistry Cloudflare compat streaming > materializes the Cloudflare endpoint after extension-style auth resolution
+ FAIL  test/model-runtime-cloudflare-compat.test.ts > ModelRegistry Cloudflare compat streaming > materializes the Cloudflare endpoint through ModelRuntime streaming
+ FAIL  test/package-command-paths.test.ts > package commands > allows local package install to initialize fresh project settings
+ FAIL  test/package-command-paths.test.ts > package commands > cycles project package overrides in config local mode
+ FAIL  test/package-command-paths.test.ts > package commands > prints a pnpm metadata hint when self-update fails
+ FAIL  test/package-manager.test.ts > DefaultPackageManager > pattern filtering in package filters > should resolve autoload-disabled package entries as positive-only without a global package
+ FAIL  test/package-manager.test.ts > DefaultPackageManager > resolve > should resolve symlinked user and project resources once
+ FAIL  test/paths.test.ts > canonicalizePath > falls back to the raw path for a dangling symlink
+ FAIL  test/paths.test.ts > canonicalizePath > resolves directory symlinks
+ FAIL  test/paths.test.ts > canonicalizePath > resolves symlinks to their targets
+ FAIL  test/resource-loader.test.ts > DefaultResourceLoader > reload > should load symlinked user and project extensions once
+ FAIL  test/sdk-session-manager.test.ts > createAgentSession session manager defaults > derives cwd from an explicit sessionManager when cwd is omitted
+ FAIL  test/sdk-session-manager.test.ts > createAgentSession session manager defaults > uses agentDir for the default persisted session path
+ FAIL  test/session-file-invalid.test.ts > --session invalid file handling > prints a friendly error and preserves non-session file content
+ FAIL  test/session-id-readonly.test.ts > --session-id > does not persist a custom ID for metadata commands
+ FAIL  test/session-manager/load-entries.test.ts > SessionManager.inMemory with preloaded entries > creates a header from the options when the entries carry none
+ FAIL  test/session-selector-path-delete.test.ts > session selector path/delete interactions > threads sessions when parent and child paths use different symlink aliases
+ FAIL  test/session-selector-path-delete.test.ts > session selector path/delete interactions > treats the current session as active across symlink aliases
+ FAIL  test/startup-session-name.test.ts > startup session name > sets --name on the selected session before runtime model validation
+ FAIL  test/stdout-cleanliness.test.ts > stdout cleanliness in non-interactive modes > keeps stdout empty for --mode json --help while routing trusted startup chatter to stderr
+ FAIL  test/stdout-cleanliness.test.ts > stdout cleanliness in non-interactive modes > prints plain --help to stdout when stdout is redirected
+ FAIL  test/suite/regressions/2791-fswatch-error-crash.test.ts > issue #2791 fs.watch error event crashes process > process should survive an error event on the theme FSWatcher
+ FAIL  test/tools.test.ts > Coding Agent Tools > edit tool > should include EACCES for read-only files
+ FAIL  test/tools.test.ts > Coding Agent Tools > edit tool > should include EACCES in diff preview for unreadable files
+ FAIL  test/tools.test.ts > Coding Agent Tools > grep tool > should treat flag-like patterns as search text
+ FAIL  test/tools.test.ts > tool cwd resolution > bash uses ctx.cwd when provided
+ FAIL  test/trust-manager.test.ts > ProjectTrustStore > detects trust-requiring project resources
+ FAIL  test/trust-selector.test.ts > TrustSelectorComponent > adds a trust parent option
+ FAIL  test/trust-selector.test.ts > TrustSelectorComponent > keeps the saved trusted decision marked while browsing
+ FAIL  test/trust-selector.test.ts > TrustSelectorComponent > selects a trust decision

@@ -1757,4 +1757,54 @@ bar`,
 			assert.strictEqual(partial.render(80).length, complete.render(80).length);
 		});
 	});
+
+	describe("Full-stack message pipeline", () => {
+		it("renders the shared feature set for user and assistant messages", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: false });
+			try {
+				const source = [
+					"# Title",
+					"",
+					"Body **bold**, *italic*, ~~struck~~, `inline()` and a [link](https://example.com/x).",
+					"",
+					"- bullet",
+					"- [ ] open task",
+					"- [x] done task",
+					"",
+					"> quoted",
+					"",
+					"| A | B |",
+					"| --- | --- |",
+					"| 1 | 2 |",
+					"",
+					"```ts",
+					"const n = 1;",
+					"```",
+				].join("\n");
+
+				const raw = new Markdown(source, 0, 0, defaultMarkdownTheme).render(80);
+				const text = raw.map((line) => stripAnsi(line).trimEnd()).join("\n");
+
+				// Structure: every full-stack element survives the shared pipeline.
+				assert.match(text, /^Title$/m); // h1 renders without the # prefix
+				assert.match(text, /Body bold, italic, struck, inline\(\) and a link \(https:\/\/example\.com\/x\)/);
+				assert.match(text, /- bullet/);
+				assert.match(text, /\[ \] open task/);
+				assert.match(text, /\[x\] done task/);
+				assert.match(text, /│ A │ B │/); // table header row
+				assert.match(text, /│ quoted/); // blockquote border
+				assert.match(text, /```ts/);
+				assert.match(text, /const n = 1;/);
+
+				// Styling: bold, italic, strikethrough, and codespan colors are applied.
+				const joined = raw.join("\n");
+				assert.ok(joined.includes("\x1b[1m"), "expected bold styling");
+				assert.ok(joined.includes("\x1b[3m"), "expected italic styling");
+				assert.ok(joined.includes("\x1b[9m"), "expected strikethrough styling");
+				assert.ok(joined.includes("\x1b[33m"), "expected codespan styling");
+			} finally {
+				resetCapabilitiesCache();
+			}
+		});
+	});
 });
