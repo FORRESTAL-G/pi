@@ -97,12 +97,17 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
-import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
+import {
+	expandPromptMidsentence,
+	expandPromptTemplate,
+	type PromptMidsentenceBlock,
+	type PromptTemplate,
+} from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
-import { type SkillMidsentenceBlock, expandSkillMidsentence } from "./skills.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
+import { expandSkillMidsentence, type SkillMidsentenceBlock } from "./skills.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
@@ -1158,15 +1163,21 @@ export class AgentSession {
 			}
 
 			// Collect mid-sentence skill invocations (/name args from line 2 on — name kept,
-			// body emitted as separate follow-up messages), then expand native skill commands
-			// (/skill:name args) and prompt templates (/template args)
+			// body emitted as separate follow-up messages), mid-sentence prompt templates
+			// (MS5: user text verbatim, RAW body as separate same-turn message), then expand
+			// native skill commands (/skill:name args) and position-0 prompt templates
+			// (/template args — substitution semantics unchanged)
 			let expandedText = currentText;
 			let skillBlockMessages: SkillMidsentenceBlock[] = [];
+			let promptBlockMessages: PromptMidsentenceBlock[] = [];
 			if (expandPromptTemplates) {
 				const midsentence = this._collectSkillMidsentence(expandedText);
 				expandedText = midsentence.text;
 				skillBlockMessages = midsentence.blocks;
 				expandedText = this._expandSkillCommand(expandedText);
+				const promptMidsentence = this._collectPromptMidsentence(expandedText);
+				expandedText = promptMidsentence.text;
+				promptBlockMessages = promptMidsentence.blocks;
 				expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 			}
 
@@ -1182,7 +1193,8 @@ export class AgentSession {
 				} else {
 					await this._queueSteer(expandedText, currentImages);
 				}
-				for (const block of skillBlockMessages) {
+				const blocks = [...skillBlockMessages, ...promptBlockMessages].sort((a, b) => a.pos - b.pos);
+				for (const block of blocks) {
 					await this._queueSteer(block.message);
 				}
 				preflightResult?.(true);
@@ -1252,17 +1264,31 @@ export class AgentSession {
 			// messages carry details.pos computed on the very same text. Extension messages
 			// without a position (foreign extensions, or pos missing) sort last, arrival order.
 			const postUser: Array<{ pos: number; msg: AgentMessage }> = [];
+			const postUserMsg = (text: string): AgentMessage => ({
+				role: "user",
+				content: [{ type: "text", text }],
+				timestamp: Date.now(),
+			});
 			for (const block of skillBlockMessages) {
-				postUser.push({
-					pos: block.pos,
-					msg: {
-						role: "user",
-						content: [{ type: "text", text: block.message }],
-						timestamp: Date.now(),
-					},
-				});
+				postUser.push({ pos: block.pos, msg: postUserMsg(block.message) });
 			}
+			// MS5: prompt bodies follow the user message as separate same-turn messages,
+			// interleaved with skill blocks by token position (same mechanism, a90ee83fe).
+			for (const block of promptBlockMessages) {
+				postUser.push({ pos: block.pos, msg: postUserMsg(block.message) });
+			}
+			// MS5: the core now delivers prompt-midsentence bodies itself (raw template).
+			// Extension bodies for tokens the core resolved would double-deliver — drop them
+			// by name; extension bodies for names the core does not know (e.g. its own
+			// exclusive resolutions) keep flowing, and foreign extensions are untouched.
+			const corePromptNames = new Set(promptBlockMessages.map((b) => b.name));
 			for (const msg of result?.messages ?? []) {
+				if (msg.customType === "prompt-midsentence" && corePromptNames.size > 0) {
+					const names = (msg.details as { names?: unknown } | undefined)?.names;
+					if (Array.isArray(names) && names.some((n) => corePromptNames.has(String(n)))) {
+						continue;
+					}
+				}
 				const customMsg: AgentMessage = {
 					role: "custom",
 					customType: msg.customType,
@@ -1347,6 +1373,17 @@ export class AgentSession {
 	}
 
 	/**
+	 * Collect mid-sentence prompt-template invocations (MS5). The user text stays
+	 * verbatim; each resolved token yields a block with the RAW template content to be
+	 * delivered as a separate same-turn message right after the user text.
+	 */
+	private _collectPromptMidsentence(text: string): { text: string; blocks: PromptMidsentenceBlock[] } {
+		const templates = [...this.promptTemplates];
+		if (templates.length === 0) return { text, blocks: [] };
+		return expandPromptMidsentence(text, templates);
+	}
+
+	/**
 	 * Expand skill commands (/skill:name args) to their full content.
 	 * Returns the expanded text, or the original text if not a skill command or skill not found.
 	 * Emits errors via extension runner if file read fails.
@@ -1392,13 +1429,17 @@ export class AgentSession {
 			this._throwIfExtensionCommand(text);
 		}
 
-		// Expand mid-sentence skills, skill commands and prompt templates
+		// Expand mid-sentence skills, mid-sentence prompt templates (MS5), skill commands
+		// and prompt templates; bodies queue as separate messages, ordered by token position
 		const midsentence = this._collectSkillMidsentence(text);
 		let expandedText = this._expandSkillCommand(midsentence.text);
+		const promptMidsentence = this._collectPromptMidsentence(expandedText);
+		expandedText = promptMidsentence.text;
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
+		const blocks = [...midsentence.blocks, ...promptMidsentence.blocks].sort((a, b) => a.pos - b.pos);
 		await this._queueSteer(expandedText, images);
-		for (const block of midsentence.blocks) {
+		for (const block of blocks) {
 			await this._queueSteer(block.message);
 		}
 	}
@@ -1417,13 +1458,17 @@ export class AgentSession {
 			this._throwIfExtensionCommand(text);
 		}
 
-		// Expand mid-sentence skills, skill commands and prompt templates
+		// Expand mid-sentence skills, mid-sentence prompt templates (MS5), skill commands
+		// and prompt templates; bodies queue as separate messages, ordered by token position
 		const midsentence = this._collectSkillMidsentence(text);
 		let expandedText = this._expandSkillCommand(midsentence.text);
+		const promptMidsentence = this._collectPromptMidsentence(expandedText);
+		expandedText = promptMidsentence.text;
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
+		const blocks = [...midsentence.blocks, ...promptMidsentence.blocks].sort((a, b) => a.pos - b.pos);
 		await this._queueFollowUp(expandedText, images);
-		for (const block of midsentence.blocks) {
+		for (const block of blocks) {
 			await this._queueFollowUp(block.message);
 		}
 	}

@@ -18,20 +18,30 @@ import {
 	type AssistantMessageEvent,
 	EventStream,
 	getModel,
+	type ImageContent,
+	type TextContent,
 } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
-import { convertToLlm } from "../src/core/messages.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
+import type { BeforeAgentStartEventResult, Extension } from "../src/core/extensions/types.ts";
+import { convertToLlm } from "../src/core/messages.ts";
 import type { ResourceLoader } from "../src/core/resource-loader.ts";
-import { type Skill } from "../src/core/skills.ts";
-import type { Extension } from "../src/core/extensions/types.ts";
-import type { BeforeAgentStartEventResult } from "../src/core/extensions/types.ts";
-import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import type { Skill } from "../src/core/skills.ts";
+import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 import { createTestResourceLoader } from "./utilities.ts";
+
+/** Join a user message content (string or parts) into its model-visible text. */
+function userTextOf(content: string | (TextContent | ImageContent)[]): string {
+	const parts = typeof content === "string" ? [{ type: "text" as const, text: content }] : content;
+	return parts
+		.filter((part): part is TextContent => part.type === "text")
+		.map((part) => part.text)
+		.join("\n");
+}
 
 class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
 	constructor() {
@@ -110,7 +120,7 @@ Skill instructions here.
 		const otherDir = join(tempDir, "skills", "other-skill");
 		mkdirSync(otherDir, { recursive: true });
 		writeFileSync(
-				join(otherDir, "SKILL.md"),
+			join(otherDir, "SKILL.md"),
 			"---\nname: other-skill\ndescription: Another test skill.\n---\n\n# Other Skill\n\nOther instructions.\n",
 		);
 		const otherSkill: Skill = {
@@ -126,7 +136,7 @@ Skill instructions here.
 			path: "stub-ms3",
 			resolvedPath: "stub-ms3",
 			sourceInfo: createSyntheticSourceInfo("stub-ms3", { source: "test" }),
-			handlers: new Map([
+			handlers: new Map<string, ((event: any, ctx: any) => any)[]>([
 				[
 					"input",
 					[
@@ -140,10 +150,7 @@ Skill instructions here.
 				],
 				[
 					"before_agent_start",
-					[
-						async (event: { prompt?: string }) =>
-							stubBeforeAgentStart?.(event.prompt ?? "") ?? undefined,
-					],
+					[async (event: { prompt?: string }) => stubBeforeAgentStart?.(event.prompt ?? "") ?? undefined],
 				],
 			]),
 			tools: new Map(),
@@ -172,31 +179,29 @@ Skill instructions here.
 			streamFn: (_model, context) => {
 				capturedLog = context.messages.map((msg) => {
 					if (msg.role === "user") {
-						return { role: "user", text: msg.content.filter((p) => p.type === "text").map((p) => p.text).join("\n") };
+						return { role: "user", text: userTextOf(msg.content) };
 					}
 					const cm = msg as { role: string; customType?: string; content: unknown };
-						const text =
-							typeof cm.content === "string"
+					const text =
+						typeof cm.content === "string"
+							? cm.content
+							: Array.isArray(cm.content)
 								? cm.content
-								: Array.isArray(cm.content)
-									? cm.content
-											.filter((p: { type: string; text?: string }) => p && p.type === "text")
-											.map((p: { text?: string }) => p.text ?? "")
-											.join("\n")
-									: "";
+										.filter((p: { type: string; text?: string }) => p && p.type === "text")
+										.map((p: { text?: string }) => p.text ?? "")
+										.join("\n")
+								: "";
 					return { role: cm.role, text, customType: cm.customType };
 				});
 				for (const msg of context.messages) {
 					if (msg.role === "user") {
-						for (const part of msg.content) {
-							if (part.type === "text") capturedUserTexts.push(part.text);
-						}
+						capturedUserTexts.push(userTextOf(msg.content));
 					}
 				}
 				const stream = new MockAssistantStream();
 				queueMicrotask(() => {
 					stream.push({ type: "start", partial: createAssistantMessage("") });
-					stream.push({ type: "done", message: createAssistantMessage("ok") });
+					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("ok") });
 				});
 				return stream;
 			},
@@ -273,7 +278,9 @@ Skill instructions here.
 
 		const steerText = capturedUserTexts.find((t) => t === "poi ancora /test-skill due");
 		expect(steerText).toBeDefined();
-		const steerBlock = capturedUserTexts.find((t) => t.startsWith('<skill name="test-skill"') && t.includes("\n\ndue"));
+		const steerBlock = capturedUserTexts.find(
+			(t) => t.startsWith('<skill name="test-skill"') && t.includes("\n\ndue"),
+		);
 		expect(steerBlock).toBeDefined();
 		expect(capturedUserTexts).toContain("vai");
 	});
@@ -308,7 +315,12 @@ Skill instructions here.
 			messages.push({ customType: "foreign-ext", content: "FOREIGN", display: true, details: {} });
 			return {
 				// v1.5 joined fallback: the MS3 runner must IGNORE it when `messages` is set
-				message: { customType: "prompt-midsentence", content: "JOINED FALLBACK", display: true, details: { names: ["fallback"] } },
+				message: {
+					customType: "prompt-midsentence",
+					content: "JOINED FALLBACK",
+					display: true,
+					details: { names: ["fallback"] },
+				},
 				messages,
 			};
 		};
@@ -335,7 +347,8 @@ Skill instructions here.
 	it("MS4 BOTH: same token queued as prompt custom AND skill block (tie pos, zero ghost)", async () => {
 		const input = "intro\nusa /test-skill y";
 		// stub mirrors ext v1.7: /test-skill resolves on BOTH registries → marker + custom
-		stubInputTransform = (text) => text.replace("/test-skill y", "/test-skill [→ prompt: test-skill · skill: test-skill] y");
+		stubInputTransform = (text) =>
+			text.replace("/test-skill y", "/test-skill [→ prompt: test-skill · skill: test-skill] y");
 		stubBeforeAgentStart = (prompt) => {
 			const pos = prompt.indexOf("/test-skill");
 			return pos > 0
@@ -382,7 +395,12 @@ Skill instructions here.
 			return pos > 0
 				? {
 						messages: [
-							{ customType: "prompt-midsentence", content: "BODY ALPHA", display: true, details: { names: ["alpha"], pos } },
+							{
+								customType: "prompt-midsentence",
+								content: "BODY ALPHA",
+								display: true,
+								details: { names: ["alpha"], pos },
+							},
 						],
 					}
 				: undefined;
@@ -390,8 +408,7 @@ Skill instructions here.
 
 		await session.prompt(input);
 
-		const expected =
-			"intro\na /alpha [→ prompt: alpha] x poi /test-skill [→ skill: test-skill] y\nfine";
+		const expected = "intro\na /alpha [→ prompt: alpha] x poi /test-skill [→ skill: test-skill] y\nfine";
 		expect(capturedUserTexts[0]).toBe(expected);
 		// ordine globale per posizione: alpha (custom) prima del blocco test-skill
 		const customIdx = capturedLog.findIndex((e) => e.text === "BODY ALPHA");

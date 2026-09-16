@@ -52,7 +52,12 @@ Hidden instructions.
 `,
 };
 
-function makeSkill(name: string, filePath: string, files: Record<string, string> = FILES, disableModelInvocation = false): Skill {
+function makeSkill(
+	name: string,
+	filePath: string,
+	files: Record<string, string> = FILES,
+	disableModelInvocation = false,
+): Skill {
 	return {
 		name,
 		description: files[filePath]!.match(/description: (.*)/)![1]!,
@@ -113,7 +118,11 @@ describe("expandSkillMidsentence", () => {
 			"/skills/amb-a/SKILL.md": "---\nname: amb-a\ndescription: a.\n---\n\nA\n",
 			"/skills/amb-b/SKILL.md": "---\nname: amb-b\ndescription: b.\n---\n\nB\n",
 		};
-		const skills = [...SKILLS, makeSkill("amb-a", "/skills/amb-a/SKILL.md", files), makeSkill("amb-b", "/skills/amb-b/SKILL.md", files)];
+		const skills = [
+			...SKILLS,
+			makeSkill("amb-a", "/skills/amb-a/SKILL.md", files),
+			makeSkill("amb-b", "/skills/amb-b/SKILL.md", files),
+		];
 		const r = expandSkillMidsentence("vai /amb ora", skills, (p) => files[p]!);
 		expect(r.text).toBe("vai /amb ora");
 		expect(r.blocks).toEqual([]);
@@ -127,13 +136,7 @@ describe("expandSkillMidsentence", () => {
 	});
 
 	it("does not trigger without a word boundary (paths, fractions)", () => {
-		for (const t of [
-			"guarda C:/x/y e dimmi",
-			"protocollo :/x",
-			"prima a/b poi",
-			"vale n/d",
-			"3 km/h ok",
-		]) {
+		for (const t of ["guarda C:/x/y e dimmi", "protocollo :/x", "prima a/b poi", "vale n/d", "3 km/h ok"]) {
 			const r = run(t);
 			expect(r.text).toBe(t);
 			expect(r.blocks).toEqual([]);
@@ -141,11 +144,7 @@ describe("expandSkillMidsentence", () => {
 	});
 
 	it("leaves the entire first line to native pi", () => {
-		for (const t of [
-			"/skill:test-skill args",
-			"/test-skill args",
-			"/comando qualsiasi cosa",
-		]) {
+		for (const t of ["/skill:test-skill args", "/test-skill args", "/comando qualsiasi cosa"]) {
 			expect(run(t).text).toBe(t);
 			expect(run(`${t}\nseconda riga`).text).toBe(`${t}\nseconda riga`);
 		}
@@ -258,10 +257,7 @@ describe("expandSkillMidsentence", () => {
 	});
 
 	it("namespace guard: colon after the name stays literal", () => {
-		for (const t of [
-			"mid /skill:foo args",
-			"mid /test-skill:foo args",
-		]) {
+		for (const t of ["mid /skill:foo args", "mid /test-skill:foo args"]) {
 			const r = run(t);
 			expect(r.text).toBe(t);
 			expect(r.blocks).toEqual([]);

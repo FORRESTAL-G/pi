@@ -693,7 +693,7 @@ export function expandSkillMidsentence(
 			// v2: the token stays in the user text — verbatim on an exact match, with the
 			// name normalized to the full skill name on a unique-prefix match. The body is
 			// emitted as a separate follow-up message (block + args, native shape).
-			out += text.slice(i, start) + "/" + skill.name + text.slice(afterName, scanEnd);
+			out += text.slice(i, start) + `/${skill.name}` + text.slice(afterName, scanEnd);
 			// MS3: pos = offset of the token in this input text, for the global
 			// skill/prompt interleaving by position.
 			blocks.push({ name: skill.name, message: args ? `${skillBlock}\n\n${args}` : skillBlock, pos: start });
