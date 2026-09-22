@@ -526,7 +526,7 @@ export class Editor implements Component, Focusable {
 			result.push(this.borderColor(border));
 		} else {
 			// hr2 (owner 22/09): niente riga a tutta larghezza — spazio, trattino, spazio
-			result.push(this.borderColor(" - "));
+			result.push(this.borderColor(" + "));
 		}
 
 		// Render each visible layout line
@@ -584,7 +584,7 @@ export class Editor implements Component, Focusable {
 			result.push(this.borderColor(border));
 		} else {
 			// hr2 (owner 22/09): come sopra
-			result.push(this.borderColor(" - "));
+			result.push(this.borderColor(" + "));
 		}
 
 		// Add autocomplete list if active

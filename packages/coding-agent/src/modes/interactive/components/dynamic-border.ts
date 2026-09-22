@@ -20,6 +20,8 @@ export class DynamicBorder implements Component {
 	}
 
 	render(width: number): string[] {
-		return [this.color("─".repeat(Math.max(1, width)))];
+		// hr2 (owner 22/09): i delimitatori dei box non dipingono più tutta la larghezza
+		// — un solo “ + ”, per coerenza col chrome dell'editor.
+		return [this.color(" + ")];
 	}
 }
