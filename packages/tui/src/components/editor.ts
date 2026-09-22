@@ -491,8 +491,6 @@ export class Editor implements Component, Focusable {
 		// Store for cursor navigation (must match wrapping width)
 		this.lastWidth = layoutWidth;
 
-		const horizontal = this.borderColor("─");
-
 		// Layout the text
 		const layoutLines = this.layoutText(layoutWidth);
 
@@ -527,7 +525,8 @@ export class Editor implements Component, Focusable {
 			const border = createScrollBorder("↑", this.scrollOffset, width);
 			result.push(this.borderColor(border));
 		} else {
-			result.push(horizontal.repeat(width));
+			// hr2 (owner 22/09): niente riga a tutta larghezza — spazio, trattino, spazio
+			result.push(this.borderColor(" - "));
 		}
 
 		// Render each visible layout line
@@ -584,7 +583,8 @@ export class Editor implements Component, Focusable {
 			const border = createScrollBorder("↓", linesBelow, width);
 			result.push(this.borderColor(border));
 		} else {
-			result.push(horizontal.repeat(width));
+			// hr2 (owner 22/09): come sopra
+			result.push(this.borderColor(" - "));
 		}
 
 		// Add autocomplete list if active
