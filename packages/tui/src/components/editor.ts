@@ -10,6 +10,7 @@ import {
 	getWordSegmenter,
 	isWhitespaceChar,
 	sliceByColumn,
+	truncateToWidth,
 	visibleWidth,
 } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
@@ -567,7 +568,7 @@ export class Editor implements Component, Focusable {
 					displayText = before + marker + cursor;
 					lineVisibleWidth = lineVisibleWidth + 1;
 					// If cursor overflows content width into the padding, flag it
-					if (lineVisibleWidth > contentWidth && paddingX > 0) {
+					if (lineVisibleWidth > contentWidth - frameIndent.length && paddingX > 0) {
 						cursorInPadding = true;
 					}
 				}
@@ -578,7 +579,7 @@ export class Editor implements Component, Focusable {
 			const lineRightPadding = cursorInPadding ? rightPadding.slice(1) : rightPadding;
 
 			// Render the line (no side borders, just the corner markers above and below)
-			result.push(`${frameIndent}${leftPadding}${displayText}${padding}${lineRightPadding}`);
+			result.push(truncateToWidth(`${frameIndent}${leftPadding}${displayText}${padding}${lineRightPadding}`, width));
 		}
 
 		// Render bottom border (with scroll indicator if more content below)
@@ -596,8 +597,8 @@ export class Editor implements Component, Focusable {
 			const autocompleteResult = this.autocompleteList.render(contentWidth);
 			for (const line of autocompleteResult) {
 				const lineWidth = visibleWidth(line);
-				const linePadding = " ".repeat(Math.max(0, contentWidth - lineWidth));
-				result.push(`${frameIndent}${leftPadding}${line}${linePadding}${rightPadding}`);
+				const linePadding = " ".repeat(Math.max(0, contentWidth - frameIndent.length - lineWidth));
+				result.push(truncateToWidth(`${frameIndent}${leftPadding}${line}${linePadding}${rightPadding}`, width));
 			}
 		}
 

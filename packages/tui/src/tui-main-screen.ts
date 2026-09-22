@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { deleteKittyImage, isImageLine } from "./terminal-image.ts";
 import { type TUI, TuiBase, type TuiStopOptions } from "./tui.ts";
-import { visibleWidth } from "./utils.ts";
+import { truncateToWidth, visibleWidth } from "./utils.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
 
@@ -224,12 +224,12 @@ export class TuiMainScreen extends TuiBase implements TUI {
 						buffer += "\r\n";
 					}
 					buffer += `\x1b[${imageReservedRows - 1}A`;
-					buffer += line;
+					buffer += newLines[i];
 					buffer += `\x1b[${imageReservedRows - 1}B`;
 					i += imageReservedRows - 1;
 					continue;
 				}
-				buffer += line;
+				buffer += newLines[i];
 			}
 			buffer += "\x1b[?2026l"; // End synchronized output
 			this.terminal.write(buffer);
@@ -437,7 +437,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 					buffer += "\r\n\x1b[2K";
 				}
 				buffer += `\x1b[${imageReservedRows - 1}A`;
-				buffer += line;
+				buffer += newLines[i];
 				buffer += `\x1b[${imageReservedRows - 1}B`;
 				i += imageReservedRows - 1;
 				continue;
@@ -459,20 +459,12 @@ export class TuiMainScreen extends TuiBase implements TUI {
 				fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
 				fs.writeFileSync(crashLogPath, crashData);
 
-				// Clean up terminal state before throwing
-				this.stop();
-
-				const errorMsg = [
-					`Rendered line ${i} exceeds terminal width (${visibleWidth(line)} > ${width}).`,
-					"",
-					"This is likely caused by a custom TUI component not truncating its output.",
-					"Use visibleWidth() to measure and truncateToWidth() to truncate lines.",
-					"",
-					`Debug log written to: ${crashLogPath}`,
-				].join("\n");
-				throw new Error(errorMsg);
+				// hr4 (owner 22/09): last-resort a livello screen - la riga fuori larghezza
+				// viene troncata (e loggata per debug), non crasha pi. I componenti devono
+				// comunque truncare da soli: questa e' la rete di sicurezza finale.
+				newLines[i] = truncateToWidth(line, width);
 			}
-			buffer += line;
+			buffer += newLines[i];
 		}
 
 		// Track where cursor ended up after rendering
