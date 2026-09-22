@@ -486,7 +486,11 @@ export class Editor implements Component, Focusable {
 
 		// Layout width: with padding the cursor can overflow into it,
 		// without padding we reserve 1 column for the cursor.
-		const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
+		// hr3 (owner 22/09): i marker ' - ' dei bordi restano a inizio riga (angoli del
+		// frame); il contenuto è indentato di 2 così la verticale del testo passa poco
+		// prima della fine del marker.
+		const frameIndent = "  ";
+		const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1) - frameIndent.length);
 
 		// Store for cursor navigation (must match wrapping width)
 		this.lastWidth = layoutWidth;
@@ -570,11 +574,11 @@ export class Editor implements Component, Focusable {
 			}
 
 			// Calculate padding based on actual visible width
-			const padding = " ".repeat(Math.max(0, contentWidth - lineVisibleWidth));
+			const padding = " ".repeat(Math.max(0, contentWidth - frameIndent.length - lineVisibleWidth));
 			const lineRightPadding = cursorInPadding ? rightPadding.slice(1) : rightPadding;
 
-			// Render the line (no side borders, just horizontal lines above and below)
-			result.push(`${leftPadding}${displayText}${padding}${lineRightPadding}`);
+			// Render the line (no side borders, just the corner markers above and below)
+			result.push(`${frameIndent}${leftPadding}${displayText}${padding}${lineRightPadding}`);
 		}
 
 		// Render bottom border (with scroll indicator if more content below)
@@ -593,7 +597,7 @@ export class Editor implements Component, Focusable {
 			for (const line of autocompleteResult) {
 				const lineWidth = visibleWidth(line);
 				const linePadding = " ".repeat(Math.max(0, contentWidth - lineWidth));
-				result.push(`${leftPadding}${line}${linePadding}${rightPadding}`);
+				result.push(`${frameIndent}${leftPadding}${line}${linePadding}${rightPadding}`);
 			}
 		}
 
