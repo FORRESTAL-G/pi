@@ -1,0 +1,56 @@
+--- a/modes/interactive/components/timestamp-marker.js
++++ b/modes/interactive/components/timestamp-marker.js
+@@ -39,7 +39,7 @@
+ }
+ /**
+  * Etichetta temporale inline senza freccia: `HH:MM` oppure `HH:MM · GG MMM AAAA`.
+- * Usata dal /tree; il marker del transcript aggiunge la freccia `▼`.
++ * Usata dal /tree; il marker del transcript aggiunge la freccia `▲`.
+  */
+ export function formatTimestampLabel(ts, withDate) {
+     const time = getTimeFormatter().format(new Date(ts));
+@@ -47,21 +47,24 @@
+         return time;
+     return `${time} · ${getDateFormatter().format(new Date(ts))}`;
+ }
+-/** Formatta il testo del marker: `▼ HH:MM` oppure `▼ HH:MM · GG MMM AAAA`. */
++/** Formatta il testo del marker: `▲ HH:MM` oppure `▲ HH:MM · GG MMM AAAA`. */
+ export function formatTimestampMarker(ts, withDate) {
+-    return `▼ ${formatTimestampLabel(ts, withDate)}`;
++    return `▲ ${formatTimestampLabel(ts, withDate)}`;
+ }
+ /**
+- * Testo del marker rev2: OGNI messaggio eleggibile (user, assistant, custom
+- * visibile) ha il proprio marker; il timestamp del messaggio precedente serve
+- * solo a decidere se aggiungere la data al cambio giorno.
++ * Testo del marker rev3: OGNI messaggio eleggibile (user, assistant, custom
++ * visibile) ha il proprio marker con SEMPRE la data completa (richiesta owner:
++ * la data serve anche dentro lo stesso giorno di produzione). Il parametro
++ * previousTs resta nella firma per compatibilita' col call-site; la logica
++ * cambio-giorno di timestampMarkerNeedsDate resta usata solo dal /tree.
+  */
+ export function buildTimestampMarker(previousTs, ts, now = Date.now()) {
+-    return formatTimestampMarker(ts, timestampMarkerNeedsDate(previousTs, ts, now));
++    return formatTimestampMarker(ts, true);
+ }
+ /**
+- * Riga marker temporale dim appesa sopra un messaggio.
+- * La freccia ▼ indica che il timestamp è del messaggio sottostante.
++ * Marker temporale dim appesa SOTTO un messaggio (rev3): prima riga divisore
++ * full-width (si adatta alla larghezza reale del riquadro), poi il marker.
++ * La freccia ▲ indica che il timestamp è del messaggio sovrastante.
+  */
+ export class TimestampMarkerComponent {
+     text;
+@@ -71,8 +74,8 @@
+     invalidate() {
+         // Nessuno stato cacheato: il testo è immutabile.
+     }
+-    render(_width) {
+-        return [theme.fg("dim", this.text)];
++    render(width) {
++        return [theme.fg("dim", "+"), theme.fg("dim", this.text)]; // r63 (owner): delimitatore fine messaggio = SINGOLO + (era ─ full-width)
+     }
+ }
+ //# sourceMappingURL=timestamp-marker.js.map
+\ No newline at end of file

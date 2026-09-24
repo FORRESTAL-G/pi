@@ -1,0 +1,10 @@
+--- a/core/keybindings.js
++++ b/core/keybindings.js
+@@ -25,6 +25,7 @@
+     },
+     "app.model.select": { defaultKeys: "ctrl+l", description: "Open model selector" },
+     "app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
++    "app.footer.toggle": { defaultKeys: "alt+i", description: "Toggle footer info" },
+     "app.thinking.toggle": {
+         defaultKeys: "ctrl+t",
+         description: "Toggle thinking blocks",

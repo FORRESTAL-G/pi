@@ -1,0 +1,52 @@
+--- a/modes/interactive/interactive-mode.js
++++ b/modes/interactive/interactive-mode.js
+@@ -246,6 +246,7 @@
+     footer;
+     footerContainer;
+     footerDataProvider;
++    footerCollapsed;
+     // Stored so the same manager can be injected into custom editors, selectors, and extension UI.
+     keybindings;
+     version;
+@@ -650,11 +651,11 @@
+         });
+         const dock = new TuiLayouts.VStack([
+             { component: this.pendingMessagesContainer, shrink: 1, minSize: 0 },
+-            { component: this.statusContainer, shrink: 1, minSize: 0 },
++            { component: this.statusContainer, shrink: 1, minSize: 0, visible: () => !this.footerCollapsed },
+             { component: this.widgetContainerAbove, shrink: 1, minSize: 0 },
+             { component: this.editorContainer, shrink: 1, minSize: 3 },
+             { component: this.widgetContainerBelow, shrink: 1, minSize: 0 },
+-            { component: this.footerContainer, shrink: 1, minSize: 1 },
++            { component: this.footerContainer, shrink: 1, minSize: 0, visible: () => !this.footerCollapsed },
+         ]);
+         this.fullscreenLayoutRoot = new TuiLayouts.VStack([
+             { component: this.transcriptScrollView, basis: 0, grow: 1, shrink: 1, minSize: 1 },
+@@ -2264,6 +2265,7 @@
+         this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
+         this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
+         this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
++        this.defaultEditor.onAction("app.footer.toggle", () => this.toggleFooterVisibility());
+         this.defaultEditor.onAction("app.thinking.inspect", () => this.openThinkingModal());
+         this.defaultEditor.onAction("app.editor.external", () => void this.handleOpenExternalEditor());
+         this.defaultEditor.onAction("app.message.copy", () => void this.handleCopyCommand({ flashConfirmation: true }));
+@@ -3371,6 +3373,19 @@
+     toggleToolOutputExpansion() {
+         this.setToolsExpanded(!this.toolOutputExpanded);
+     }
++    toggleFooterVisibility() {
++        this.footerCollapsed = !this.footerCollapsed;
++        if (this.footerCollapsed) {
++            this.footerSavedChildren = [...this.footerContainer.children];
++            this.statusSavedChildren = [...this.statusContainer.children];
++            this.footerContainer.clear();
++            this.statusContainer.clear();
++        } else {
++            for (const c of this.footerSavedChildren ?? []) this.footerContainer.addChild(c);
++            for (const c of this.statusSavedChildren ?? []) this.statusContainer.addChild(c);
++        }
++        this.ui.requestRender();
++    }
+     setToolsExpanded(expanded) {
+         if (expanded === this.toolOutputExpanded)
+             return;

@@ -1,0 +1,65 @@
+--- a/modes/interactive/interactive-mode.js
++++ b/modes/interactive/interactive-mode.js
+@@ -2576,8 +2576,8 @@
+                 else if (event.message.role === "assistant") {
+                     this.streamingComponent = new AssistantMessageComponent(undefined, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers());
+                     this.streamingMessage = event.message;
+-                    this.addTimestampMarker(event.message.timestamp);
+                     this.chatContainer.addChild(this.streamingComponent);
++                    this.addTimestampMarker(event.message.timestamp);
+                     this.streamingComponent.updateContent(this.streamingMessage, true);
+                     this.ui.requestRender();
+                 }
+@@ -2861,9 +2861,9 @@
+         this.chatContainer.addChild(component);
+     }
+     /**
+-     * Aggiunge la riga marker temporale sopra il messaggio con timestamp `ts`.
+-     * Rev2: un marker per ogni messaggio eleggibile (user, assistant, custom
+-     * visibile); il messaggio precedente decide solo se mostrare la data.
++     * Aggiunge il marker temporale (divisore + ▲) SOTTO il messaggio con
++     * timestamp `ts`. Rev3: posizione visiva dopo il messaggio; la semantica
++     * di previousTs resta l'ordine temporale dei messaggi.
+      */
+     addTimestampMarker(ts) {
+         this.chatContainer.addChild(new TimestampMarkerComponent(buildTimestampMarker(this.lastMarkerEligibleTs, ts)));
+@@ -2882,11 +2882,11 @@
+             }
+             case "custom": {
+                 if (message.display) {
+-                    this.addTimestampMarker(message.timestamp);
+                     const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
+                     const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings(), this.outputPad);
+                     component.setExpanded(this.toolOutputExpanded);
+                     this.chatContainer.addChild(component);
++                    this.addTimestampMarker(message.timestamp);
+                 }
+                 break;
+             }
+@@ -2910,7 +2910,6 @@
+                     if (this.chatContainer.children.length > 0) {
+                         this.chatContainer.addChild(new Spacer(1));
+                     }
+-                    this.addTimestampMarker(message.timestamp);
+                     const skillBlock = parseSkillBlock(textContent);
+                     if (skillBlock) {
+                         // Render skill block (collapsible)
+@@ -2928,6 +2927,7 @@
+                         const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers());
+                         this.chatContainer.addChild(userComponent);
+                     }
++                    this.addTimestampMarker(message.timestamp);
+                     if (options?.populateHistory) {
+                         this.editor.addToHistory?.(textContent);
+                     }
+@@ -2935,9 +2935,9 @@
+                 break;
+             }
+             case "assistant": {
+-                this.addTimestampMarker(message.timestamp);
+                 const assistantComponent = new AssistantMessageComponent(message, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers());
+                 this.chatContainer.addChild(assistantComponent);
++                this.addTimestampMarker(message.timestamp);
+                 break;
+             }
+             case "toolResult": {
